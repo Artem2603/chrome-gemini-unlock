@@ -1,0 +1,37 @@
+name: Release
+
+# Pushing a tag like v1.2.3 publishes a release, but only after every test passes on that commit:
+#   git tag v1.2.3 && git push origin v1.2.3
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/test.yml
+
+  release:
+    name: Publish the release
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the ZIP, its SHA-256 and the release notes
+        run: bash tools/build-release.sh "$GITHUB_REF_NAME" dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/chrome-gemini-unlock-$GITHUB_REF_NAME.zip" \
+            "dist/chrome-gemini-unlock-$GITHUB_REF_NAME.zip.sha256" \
+            --title "Chrome Gemini Unlock $GITHUB_REF_NAME" \
+            --notes-file dist/notes.md \
+            --verify-tag
