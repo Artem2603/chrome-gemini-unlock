@@ -36,7 +36,7 @@ Avant toute modification, le script enregistre l'état d'origine dans `%LOCALAPP
 
 ## Utilisation
 
-1. Téléchargez le dépôt : **Code → Download ZIP**, puis extrayez l'archive.
+1. Téléchargez `chrome-gemini-unlock-vX.Y.Z.zip` depuis la [dernière version publiée](https://github.com/Artem2603/chrome-gemini-unlock/releases/latest) et extrayez l'archive. (**Code → Download ZIP** donne l'état de développement actuel.)
 2. Double-cliquez sur `chrome-gemini-unlock.bat`.
 3. Si Chrome est en cours d'exécution, le script demande s'il doit le fermer : tapez **O** et appuyez sur Entrée. Toute autre réponse annule sans rien modifier.
 4. Si Windows demande des droits d'administrateur, confirmez. Ils ne servent qu'aux raccourcis communs ; si vous refusez, tout le reste fonctionne quand même.
@@ -58,6 +58,14 @@ chrome-gemini-unlock.bat -NoAdmin
 | `-NoLaunch` | Ne pas démarrer Chrome à la fin. |
 
 Relancer le script ne pose pas de problème : les raccourcis et gestionnaires de liens déjà configurés sont signalés comme « déjà configuré », une entrée de démarrage automatique qui contient déjà les arguments reste telle quelle, et la sauvegarde conserve l'état d'avant la première exécution. Chaque exécution ferme et redémarre tout de même Chrome, et réécrit les flags et les paramètres de langue.
+
+**Vérifier le téléchargement.** Chaque version publiée a un fichier `.sha256` à côté de son ZIP. Dans PowerShell, dans le dossier contenant les deux fichiers, cette commande doit afficher `True` ; sinon, le ZIP n'est pas celui qui a été publié :
+
+```powershell
+(Get-FileHash .\chrome-gemini-unlock-v1.0.0.zip -Algorithm SHA256).Hash -eq (Get-Content .\chrome-gemini-unlock-v1.0.0.zip.sha256).Split(' ')[0]
+```
+
+Remplacez `v1.0.0` par la version téléchargée.
 
 ## À savoir
 
@@ -120,6 +128,9 @@ Tout ce que Chrome a enregistré d'autre depuis la première exécution, par exe
 | `chrome-gemini-unlock.ps1` | Le script. Messages en anglais, russe, français et allemand, choisis selon la langue de Windows. |
 | `tests/` | Tests unitaires, vérification des flags dans un vrai Chrome et test de bout en bout sous Windows. |
 | `.github/workflows/test.yml` | Exécute les tests sur GitHub Actions. |
+| `.github/workflows/release.yml` | Pour un tag comme `v1.2.3`, exécute tous les tests et, s'ils réussissent, publie la version. |
+| `tools/build-release.sh` | Construit une version : le ZIP, son SHA-256 et les notes de version. |
+| `CHANGELOG.md` | Ce qui a changé dans chaque version. |
 
 Testé sous Windows 11 avec Chrome 154. `tests/chrome-flags.ps1` démarre un vrai Chrome et vérifie qu'il applique chaque flag, sauf ceux que la table d'expiration du script indique comme expirés dans cette version (avec Chrome 155 : tous sauf `glic-actor-cursor`).
 

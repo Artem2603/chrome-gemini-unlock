@@ -36,7 +36,7 @@ Vor jeder Änderung sichert das Skript den ursprünglichen Zustand in `%LOCALAPP
 
 ## Verwendung
 
-1. Repository herunterladen: **Code → Download ZIP**, dann das Archiv entpacken.
+1. `chrome-gemini-unlock-vX.Y.Z.zip` aus dem [neuesten Release](https://github.com/Artem2603/chrome-gemini-unlock/releases/latest) herunterladen und entpacken. (**Code → Download ZIP** liefert den aktuellen Entwicklungsstand.)
 2. Doppelklick auf `chrome-gemini-unlock.bat`.
 3. Läuft Chrome, fragt das Skript, ob es geschlossen werden soll: **J** eingeben und die Eingabetaste drücken. Jede andere Antwort bricht ab, ohne etwas zu ändern.
 4. Wenn Windows nach Administratorrechten fragt, bestätigen. Sie werden nur für die Verknüpfungen aller Benutzer gebraucht; wenn Sie ablehnen, funktioniert alles andere trotzdem.
@@ -58,6 +58,14 @@ chrome-gemini-unlock.bat -NoAdmin
 | `-NoLaunch` | Chrome am Ende nicht starten. |
 
 Das Skript kann gefahrlos erneut ausgeführt werden: Bereits eingerichtete Verknüpfungen und Link-Handler werden als „bereits eingerichtet“ gemeldet, ein Autostart-Eintrag, der die Argumente schon enthält, bleibt unverändert, und die Sicherung behält den Zustand vor dem ersten Lauf. Trotzdem schließt jeder Lauf Chrome, startet es neu und schreibt die Flags und Spracheinstellungen erneut.
+
+**Download prüfen.** Zu jedem Release gehört neben dem ZIP eine `.sha256`-Datei. In PowerShell im Ordner mit beiden Dateien muss dieser Befehl `True` ausgeben; sonst ist das ZIP nicht das veröffentlichte:
+
+```powershell
+(Get-FileHash .\chrome-gemini-unlock-v1.0.0.zip -Algorithm SHA256).Hash -eq (Get-Content .\chrome-gemini-unlock-v1.0.0.zip.sha256).Split(' ')[0]
+```
+
+Ersetzen Sie `v1.0.0` durch die heruntergeladene Version.
 
 ## Gut zu wissen
 
@@ -120,6 +128,9 @@ Alles andere, was Chrome seit dem ersten Lauf gespeichert hat, etwa andere Einst
 | `chrome-gemini-unlock.ps1` | Das eigentliche Skript. Meldungen auf Englisch, Russisch, Französisch und Deutsch, je nach Windows-Sprache. |
 | `tests/` | Unit-Tests, eine Prüfung der Flags in einem echten Chrome und ein End-to-End-Test unter Windows. |
 | `.github/workflows/test.yml` | Führt die Tests auf GitHub Actions aus. |
+| `.github/workflows/release.yml` | Führt bei einem Tag wie `v1.2.3` alle Tests aus und veröffentlicht das Release, wenn sie bestehen. |
+| `tools/build-release.sh` | Baut ein Release: das ZIP, seine SHA-256 und die Versionshinweise. |
+| `CHANGELOG.md` | Was sich in jeder Version geändert hat. |
 
 Getestet unter Windows 11 mit Chrome 154. `tests/chrome-flags.ps1` startet ein echtes Chrome und prüft, dass es jedes Flag anwendet, außer denen, die laut Ablauftabelle des Skripts in dieser Version abgelaufen sind (mit Chrome 155: alle außer `glic-actor-cursor`).
 

@@ -36,7 +36,7 @@ Before changing anything, the script saves the original state to `%LOCALAPPDATA%
 
 ## Usage
 
-1. Download the repository: **Code → Download ZIP**, then extract the archive.
+1. Download `chrome-gemini-unlock-vX.Y.Z.zip` from the [latest release](https://github.com/Artem2603/chrome-gemini-unlock/releases/latest) and extract it. (**Code → Download ZIP** gives the current development state instead.)
 2. Double-click `chrome-gemini-unlock.bat`.
 3. If Chrome is running, the script asks whether to close it: type **Y** and press Enter. Any other answer cancels without changing anything.
 4. If Windows asks for administrator rights, confirm. This is only needed for the shortcuts shared by all users; if you decline, everything else still works.
@@ -58,6 +58,14 @@ chrome-gemini-unlock.bat -NoAdmin
 | `-NoLaunch` | Do not start Chrome at the end. |
 
 Running the script again is safe: shortcuts and link handlers that are already set up are reported as "already set up", an autostart entry that already has the arguments stays as it is, and the backup keeps the state from before the first run. Each run still closes and restarts Chrome and writes the flags and language settings again.
+
+**Checking the download.** Each release has a `.sha256` file next to its ZIP. In PowerShell, in the folder with both files, this command must print `True`; otherwise the ZIP is not the one that was published:
+
+```powershell
+(Get-FileHash .\chrome-gemini-unlock-v1.0.0.zip -Algorithm SHA256).Hash -eq (Get-Content .\chrome-gemini-unlock-v1.0.0.zip.sha256).Split(' ')[0]
+```
+
+Replace `v1.0.0` with the version you downloaded.
 
 ## Good to know
 
@@ -120,6 +128,9 @@ Everything else Chrome saved since the first run, for example other settings or 
 | `chrome-gemini-unlock.ps1` | The script itself. Messages in English, Russian, French and German, chosen by the Windows language. |
 | `tests/` | Unit tests, a check of the flags in a real Chrome, and an end-to-end test on Windows. |
 | `.github/workflows/test.yml` | Runs the tests on GitHub Actions. |
+| `.github/workflows/release.yml` | On a tag like `v1.2.3`, runs all tests and, if they pass, publishes the release. |
+| `tools/build-release.sh` | Builds a release: the ZIP, its SHA-256 and the release notes. |
+| `CHANGELOG.md` | What changed in each version. |
 
 Tested on Windows 11 with Chrome 154. `tests/chrome-flags.ps1` starts a real Chrome and checks that it applies every flag, except those the script's expiry table marks as expired in that version (with Chrome 155: all but `glic-actor-cursor`).
 
