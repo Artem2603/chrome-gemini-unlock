@@ -27,7 +27,7 @@ Ein Windows-Skript, das in Google Chrome die Gemini-Seitenleiste (interner Name 
    - speichert das Land in `Local State` (`variations_permanent_overridden_country`).
 5. Startet Chrome neu und prüft, dass es mit dem Override läuft. Läuft das Skript mit Administratorrechten, startet es Chrome nicht, weil Chrome diese Rechte sonst ebenfalls hätte: Starten Sie Chrome dann über eine Verknüpfung.
 
-Vor jeder Änderung sichert das Skript den ursprünglichen Zustand in `%LOCALAPPDATA%\chrome-gemini-unlock\backup`: Dateien werden dorthin kopiert, Registrierungswerte in `manifest.txt` notiert. Spätere Läufe überschreiben diese Sicherung nie. `-Restore` macht die Änderungen damit rückgängig.
+Vor jeder Änderung sichert das Skript den ursprünglichen Zustand in `%LOCALAPPDATA%\chrome-gemini-unlock\backup`: Dateien werden dorthin kopiert, Registrierungswerte in `manifest.txt` notiert. Spätere Läufe überschreiben diese Sicherung nie. `-Restore` macht die Änderungen damit rückgängig; nach einer vollständigen Wiederherstellung wird der Ordner in `backup-restored-<Datum>` umbenannt, und der nächste Lauf sichert den Zustand, wie er dann ist.
 
 ## Voraussetzungen
 
@@ -69,7 +69,7 @@ Das Skript kann gefahrlos erneut ausgeführt werden: Bereits eingerichtete Verkn
 - **Sprachen und Synchronisierung.** Die Profile bekommen die Sprachen `en-US,en`, Websites bevorzugen daher Englisch. Bei aktivierter Chrome-Synchronisierung landet die Sprachliste auch in Ihrem Chrome auf anderen Computern.
 - **Link-Handler.** Das Skript legt eine benutzereigene Kopie von Chromes Link-Registrierung in `HKCU\Software\Classes` an (`ChromeHTML`, `ChromePDF`). Wenn Sie Chrome deinstallieren, löschen Sie diese Schlüssel (siehe „Rückgängig machen“).
 - **Agent-Funktionen** sind standardmäßig aus. Mit `-Agent` kann Gemini in Ihrem Browser, in dem Sie bei Ihren Konten angemeldet sind, für Sie klicken, tippen und Formulare ausfüllen. Eine Webseite kann in ihrem Inhalt Anweisungen für die KI verstecken (Prompt Injection) und Gemini so gegen Sie handeln lassen. Aktivieren Sie sie nur, wenn Sie dieses Risiko in Kauf nehmen, und behalten Sie im Blick, was Gemini tut.
-- **Flags laufen aus.** Laut den Flag-Metadaten von Chromium laufen die meisten dieser Flags nach Chrome 160 aus; `glic-actor` nach Chrome 172, `enable-browser-actuator-for-glic-experimental-triggering` und `glic-actor-script-tools` nach Chrome 170. Danach ignoriert Chrome ein Flag, sofern Google es nicht verlängert. Das Skript warnt, wenn das installierte Chrome neuer ist als die Version, nach der ein Flag ausläuft. `glic-actor-cursor` war in Chrome 155 bereits abgelaufen und wurde erst ab Chrome 156 bis 160 verlängert: Mit Chrome 155 warnt das Skript und nennt `chrome://flags/#temporary-unexpire-flags-m154`, das es vorerst wieder einschaltet.
+- **Flags laufen aus.** Laut den Flag-Metadaten von Chromium laufen die meisten dieser Flags nach Chrome 160 aus; `glic-actor` nach Chrome 172, `enable-browser-actuator-for-glic-experimental-triggering` und `glic-actor-script-tools` nach Chrome 170. Danach ignoriert Chrome ein Flag, sofern Google es nicht verlängert. Das Skript warnt, wenn das installierte Chrome neuer ist als die Version, nach der ein Flag ausläuft. `glic-actor-cursor` war in Chrome 155 bereits abgelaufen und wurde erst ab Chrome 156 bis 160 verlängert: Mit Chrome 155 warnt das Skript. Chrome entfernt die Einstellung eines abgelaufenen Flags bei jedem Start; um es vorerst zurückzuholen, `chrome://flags/#temporary-unexpire-flags-m154` aktivieren, Chrome neu starten und das Skript erneut ausführen.
 - **Administrator-Kopie.** Für die gemeinsamen Verknüpfungen schreibt das Skript eine Kopie von sich selbst in den Sicherungsordner und führt sie mit Administratorrechten aus. Die Kopie wird vor dem Start per SHA-256 geprüft: Hat ein Programm sie verändert, während die Windows-Abfrage offen war, wird sie nicht ausgeführt, und die gemeinsamen Verknüpfungen bleiben unverändert. Vor jedem Schreibvorgang im Sicherungsordner prüft das Skript, ob dort eine Verzweigung (Junction) oder symbolische Verknüpfung liegt, und schreibt nicht darüber.
 
 ## Rückgängig machen
@@ -87,9 +87,10 @@ Wie bei einem normalen Lauf fragt das Skript vor dem Schließen von Chrome nach 
 - das gespeicherte Land;
 - die Argumente der Chrome-Verknüpfungen (Symbol, Anheftung und Name bleiben, wie sie jetzt sind);
 - den Autostart-Eintrag, falls Chrome ihn noch hat;
-- den Link-Handler: Die benutzereigene Kopie wird gelöscht, oder der Schlüssel, der vor dem Skript existierte, wird wieder importiert.
+- den Link-Handler: Die benutzereigene Kopie wird gelöscht, oder der Schlüssel, der vor dem Skript existierte, wird wieder importiert;
+- Chrome-Verknüpfungen, die die Argumente ohne Sicherung bekommen haben, etwa eine Taskleisten-Anheftung von einer geänderten Verknüpfung, verlieren die beiden Argumente.
 
-Alles andere, was Chrome seit dem ersten Lauf gespeichert hat, etwa andere Einstellungen oder neue Profile, bleibt erhalten. Gemeinsame Verknüpfungen erfordern erneut Administratorrechte: Bestätigen Sie die Windows-Abfrage, sonst bleiben sie unverändert.
+Alles andere, was Chrome seit dem ersten Lauf gespeichert hat, etwa andere Einstellungen oder neue Profile, bleibt erhalten. Gemeinsame Verknüpfungen erfordern erneut Administratorrechte: Bestätigen Sie die Windows-Abfrage, sonst bleiben sie unverändert; das Skript meldet dann, dass die Wiederherstellung unvollständig ist, behält die Sicherung, und Sie können `-Restore` erneut ausführen. Nach einer vollständigen Wiederherstellung wird der Sicherungsordner in `backup-restored-<Datum>` umbenannt: Ein späteres `-Restore` geht nicht mehr auf den Zustand vor dem allerersten Lauf zurück.
 
 **Manuell rückgängig machen** (falls sich das Skript nicht ausführen lässt):
 

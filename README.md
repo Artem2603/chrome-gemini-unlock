@@ -27,7 +27,7 @@ A Windows script that turns on the Gemini side panel in Google Chrome (internal 
    - stores the country in `Local State` (`variations_permanent_overridden_country`).
 5. Starts Chrome again and checks that it runs with the override. When the script runs with administrator rights, it does not start Chrome, because Chrome would get these rights too: start Chrome from a shortcut.
 
-Before changing anything, the script saves the original state to `%LOCALAPPDATA%\chrome-gemini-unlock\backup`: files are copied there, registry values are written to `manifest.txt`. Later runs never overwrite this backup. `-Restore` uses it to undo the changes.
+Before changing anything, the script saves the original state to `%LOCALAPPDATA%\chrome-gemini-unlock\backup`: files are copied there, registry values are written to `manifest.txt`. Later runs never overwrite this backup. `-Restore` uses it to undo the changes; after a complete restore the folder is renamed to `backup-restored-<date>`, so the next run saves the state as it is then.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ Running the script again is safe: shortcuts and link handlers that are already s
 - **Languages and sync.** Profiles get the languages `en-US,en`, so websites will prefer English. With Chrome sync turned on, the language list also reaches your Chrome on other computers.
 - **Link handler.** The script puts a per-user copy of Chrome's link registration into `HKCU\Software\Classes` (`ChromeHTML`, `ChromePDF`). If you uninstall Chrome, delete these keys (see "Undo").
 - **Agent features** are off by default. With `-Agent`, Gemini can click, type and fill in forms for you in your browser, where you are signed in to your accounts. A web page can hide instructions for the AI in its content (prompt injection) and make Gemini act against you. Enable them only if you accept that risk, and keep an eye on what Gemini does.
-- **Flags expire.** In Chromium's flag metadata, most of these flags are due to expire after Chrome 160; `glic-actor` after Chrome 172, `enable-browser-actuator-for-glic-experimental-triggering` and `glic-actor-script-tools` after Chrome 170. After that, Chrome ignores a flag unless Google extends it. The script warns when the installed Chrome is past a flag's expiry. `glic-actor-cursor` had already expired in Chrome 155 and was extended to 160 only from Chrome 156: on Chrome 155 the script warns and names `chrome://flags/#temporary-unexpire-flags-m154`, which turns it back on for now.
+- **Flags expire.** In Chromium's flag metadata, most of these flags are due to expire after Chrome 160; `glic-actor` after Chrome 172, `enable-browser-actuator-for-glic-experimental-triggering` and `glic-actor-script-tools` after Chrome 170. After that, Chrome ignores a flag unless Google extends it. The script warns when the installed Chrome is past a flag's expiry. `glic-actor-cursor` had already expired in Chrome 155 and was extended to 160 only from Chrome 156: on Chrome 155 the script warns. Chrome removes an expired flag's setting at every start, so to bring it back for now: enable `chrome://flags/#temporary-unexpire-flags-m154`, restart Chrome, then run the script again.
 - **Administrator copy.** For the shared shortcuts, the script writes a copy of itself to the backup folder and runs it with administrator rights. The copy is checked by SHA-256 before it runs: if a program changed it while the Windows prompt was open, it does not run and shared shortcuts stay unchanged. Before every write into the backup folder the script checks it for a junction or symbolic link and refuses to write through one.
 
 ## Undo
@@ -87,9 +87,10 @@ Like a normal run, it asks before closing Chrome and starts Chrome again at the 
 - the stored country;
 - the arguments of the Chrome shortcuts (icon, pinning and name stay as they are now);
 - the autostart entry, if Chrome still has it;
-- the link handler: the per-user copy is deleted, or the key that existed before the script is imported again.
+- the link handler: the per-user copy is deleted, or the key that existed before the script is imported again;
+- Chrome shortcuts that got the arguments without a backup, for example a taskbar pin made from a changed shortcut, lose the two arguments.
 
-Everything else Chrome saved since the first run, for example other settings or new profiles, is kept. Shared shortcuts need administrator rights again: confirm the Windows prompt, or they stay unchanged.
+Everything else Chrome saved since the first run, for example other settings or new profiles, is kept. Shared shortcuts need administrator rights again: confirm the Windows prompt, or they stay unchanged; the script then says the restore is not complete, keeps the backup, and you can run `-Restore` again. After a complete restore the backup folder is renamed to `backup-restored-<date>`: a later `-Restore` does not go back to the state before the very first run.
 
 **Manual undo** (if the script cannot run):
 

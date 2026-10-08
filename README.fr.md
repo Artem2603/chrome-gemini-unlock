@@ -27,7 +27,7 @@ Un script Windows qui active dans Google Chrome le panneau latéral Gemini (nom 
    - enregistre le pays dans `Local State` (`variations_permanent_overridden_country`).
 5. Redémarre Chrome et vérifie qu'il fonctionne avec le changement de région. Lorsque le script s'exécute avec des droits d'administrateur, il ne démarre pas Chrome, car Chrome recevrait aussi ces droits : démarrez Chrome depuis un raccourci.
 
-Avant toute modification, le script enregistre l'état d'origine dans `%LOCALAPPDATA%\chrome-gemini-unlock\backup` : les fichiers y sont copiés, les valeurs du registre sont notées dans `manifest.txt`. Les exécutions suivantes n'écrasent jamais cette sauvegarde. `-Restore` s'en sert pour annuler les modifications.
+Avant toute modification, le script enregistre l'état d'origine dans `%LOCALAPPDATA%\chrome-gemini-unlock\backup` : les fichiers y sont copiés, les valeurs du registre sont notées dans `manifest.txt`. Les exécutions suivantes n'écrasent jamais cette sauvegarde. `-Restore` s'en sert pour annuler les modifications ; après une restauration complète, le dossier est renommé en `backup-restored-<date>`, et la prochaine exécution enregistre l'état tel qu'il sera alors.
 
 ## Prérequis
 
@@ -69,7 +69,7 @@ Relancer le script ne pose pas de problème : les raccourcis et gestionnaires de
 - **Langues et synchronisation.** Les profils reçoivent les langues `en-US,en`, les sites web privilégieront donc l'anglais. Si la synchronisation de Chrome est activée, la liste des langues arrive aussi dans votre Chrome sur d'autres ordinateurs.
 - **Gestionnaire de liens.** Le script place une copie personnelle de l'enregistrement des liens de Chrome dans `HKCU\Software\Classes` (`ChromeHTML`, `ChromePDF`). Si vous désinstallez Chrome, supprimez ces clés (voir « Annulation »).
 - **Les fonctions d'agent** sont désactivées par défaut. Avec `-Agent`, Gemini peut cliquer, saisir du texte et remplir des formulaires à votre place dans votre navigateur, où vous êtes connecté à vos comptes. Une page web peut cacher dans son contenu des instructions destinées à l'IA (injection de prompt) et amener Gemini à agir contre vous. Ne les activez que si vous acceptez ce risque, et surveillez ce que fait Gemini.
-- **Les flags expirent.** D'après les métadonnées des flags de Chromium, la plupart de ces flags doivent expirer après Chrome 160 ; `glic-actor` après Chrome 172, `enable-browser-actuator-for-glic-experimental-triggering` et `glic-actor-script-tools` après Chrome 170. Passé ce délai, Chrome ignore un flag, sauf si Google le prolonge. Le script prévient lorsque la version de Chrome installée dépasse celle après laquelle un flag expire. `glic-actor-cursor` avait déjà expiré dans Chrome 155 et n'a été prolongé jusqu'à 160 qu'à partir de Chrome 156 : avec Chrome 155, le script prévient et indique `chrome://flags/#temporary-unexpire-flags-m154`, qui le réactive pour l'instant.
+- **Les flags expirent.** D'après les métadonnées des flags de Chromium, la plupart de ces flags doivent expirer après Chrome 160 ; `glic-actor` après Chrome 172, `enable-browser-actuator-for-glic-experimental-triggering` et `glic-actor-script-tools` après Chrome 170. Passé ce délai, Chrome ignore un flag, sauf si Google le prolonge. Le script prévient lorsque la version de Chrome installée dépasse celle après laquelle un flag expire. `glic-actor-cursor` avait déjà expiré dans Chrome 155 et n'a été prolongé jusqu'à 160 qu'à partir de Chrome 156 : avec Chrome 155, le script prévient. Chrome supprime le réglage d'un flag expiré à chaque démarrage ; pour le rétablir pour l'instant, activez `chrome://flags/#temporary-unexpire-flags-m154`, redémarrez Chrome, puis relancez le script.
 - **Copie administrateur.** Pour les raccourcis communs, le script écrit une copie de lui-même dans le dossier de sauvegarde et l'exécute avec des droits d'administrateur. La copie est vérifiée par SHA-256 avant de s'exécuter : si un programme l'a modifiée pendant que la demande de Windows était affichée, elle ne s'exécute pas et les raccourcis communs restent inchangés. Avant chaque écriture dans le dossier de sauvegarde, le script vérifie qu'il n'y a ni jonction ni lien symbolique, et refuse d'écrire à travers.
 
 ## Annulation
@@ -87,9 +87,10 @@ Comme lors d'une exécution normale, le script demande avant de fermer Chrome et
 - le pays enregistré ;
 - les arguments des raccourcis Chrome (l'icône, l'épinglage et le nom restent tels qu'ils sont maintenant) ;
 - l'entrée de démarrage automatique, si Chrome l'a toujours ;
-- le gestionnaire de liens : la copie personnelle est supprimée, ou la clé qui existait avant le script est réimportée.
+- le gestionnaire de liens : la copie personnelle est supprimée, ou la clé qui existait avant le script est réimportée ;
+- les raccourcis Chrome qui ont reçu les arguments sans sauvegarde, par exemple un épinglage à la barre des tâches fait depuis un raccourci modifié, perdent ces deux arguments.
 
-Tout ce que Chrome a enregistré d'autre depuis la première exécution, par exemple d'autres paramètres ou de nouveaux profils, est conservé. Les raccourcis communs nécessitent de nouveau des droits d'administrateur : confirmez la demande de Windows, sinon ils restent inchangés.
+Tout ce que Chrome a enregistré d'autre depuis la première exécution, par exemple d'autres paramètres ou de nouveaux profils, est conservé. Les raccourcis communs nécessitent de nouveau des droits d'administrateur : confirmez la demande de Windows, sinon ils restent inchangés ; le script indique alors que la restauration n'est pas complète, garde la sauvegarde, et vous pouvez relancer `-Restore`. Après une restauration complète, le dossier de sauvegarde est renommé en `backup-restored-<date>` : un `-Restore` ultérieur ne revient pas à l'état d'avant la toute première exécution.
 
 **Annulation manuelle** (si le script ne peut pas s'exécuter) :
 

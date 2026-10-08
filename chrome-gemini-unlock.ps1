@@ -1,4 +1,5 @@
 ﻿#Requires -Version 5.1
+
 <#
 .SYNOPSIS
     Enables the Gemini side panel (Glic) in Google Chrome on Windows.
@@ -10,14 +11,16 @@
     2. Enables the Glic flags in "Local State" and sets the interface language to en-US.
        The agent flags, which let Gemini act on web pages, are enabled only with -Agent.
     3. Switches every Chrome profile to en-US.
-    4. Adds --variations-override-country=<Country> --lang=en-US to every way Chrome
-       is started: shortcuts, the autostart entry and the link handler. The country is
-       also stored in "Local State" as variations_permanent_overridden_country.
+    4. Adds --variations-override-country=<Country> --lang=en-US to Chrome's shortcuts,
+       its autostart entry and its link handler. Chrome started another way (for example
+       Win+R "chrome") runs without them. The country is also stored in "Local State" as
+       variations_permanent_overridden_country.
     5. Starts Chrome again and checks that it runs with the override.
 
     The state from before the first run is saved once to
     %LOCALAPPDATA%\chrome-gemini-unlock\backup and never overwritten by later runs.
-    -Restore puts that state back.
+    -Restore puts that state back; after a complete restore the folder is renamed to
+    backup-restored-<date>, so the next run saves the state as it is then.
 
 .PARAMETER Country
     Two-letter country code Chrome should use for its experiments. Default: us.
@@ -31,8 +34,9 @@
 
 .PARAMETER Restore
     Undo the changes: the Glic flags, languages, stored country, shortcuts, the autostart
-    entry and the link handler return to the state before the first run. Other Chrome
-    settings are kept.
+    entry and the link handler return to the state before the first run; Chrome shortcuts
+    that got the arguments without a backup (a copy or a taskbar pin) lose them. Other
+    Chrome settings are kept.
 
 .PARAMETER NoAdmin
     Never ask for administrator rights. Shortcuts shared by all users stay unchanged.
@@ -84,7 +88,7 @@ $Messages = @{
         userData      = 'Profile folder: {0}'
         chromeMissing = 'Google Chrome is not installed: nothing found in the registry, among running programs or in the standard folders. Nothing was changed.'
         neverStarted  = 'Chrome has not been started in this Windows account yet ({0} is missing). Start Chrome once, close it and run the script again. Nothing was changed.'
-        flagExpiry    = 'Flag {0} expired after Chrome {1}, and this is Chrome {2}: Chrome ignores it. While chrome://flags/#temporary-unexpire-flags-m{1} exists, enabling it brings the flag back.'
+        flagExpiry    = 'Flag {0} expired after Chrome {1}, and this is Chrome {2}: Chrome ignores it and removes it at the next start. To bring it back for now, enable chrome://flags/#temporary-unexpire-flags-m{1}, restart Chrome, then run the script again.'
         confirmClose  = 'Google Chrome is running and will be closed. Downloads, calls and unsent form input in Chrome will be interrupted.'
         confirmPrompt = 'Close Chrome now? [Y/N]'
         cancelled     = 'Cancelled. Nothing was changed.'
@@ -130,6 +134,8 @@ $Messages = @{
         needWinPS     = 'This script needs Windows PowerShell 5.1 (powershell.exe, built into Windows 10 and 11).'
         done          = 'Done. If Gemini does not appear, open chrome://version and check that "Command Line" contains --variations-override-country, and that chrome://flags/#glic is Enabled.'
         restoreDone   = 'Restore finished. Chrome uses your own languages and region again.'
+        restorePartial = 'Restore finished, except the shortcuts shared by all users: Chrome started from them still uses en-US and the region override. Run -Restore again and confirm the Windows prompt.'
+        backupRetired = 'The backup was moved to {0}; the next run saves the state as it is then.'
         doneErrors    = 'Finished with errors, see the messages above.'
         undo          = 'How to undo: run chrome-gemini-unlock.bat -Restore (see "Undo" in README).'
     }
@@ -144,7 +150,7 @@ $Messages = @{
         userData      = 'Папка профилей: {0}'
         chromeMissing = 'Google Chrome не установлен: его нет ни в реестре, ни среди запущенных программ, ни в стандартных папках. Ничего не изменено.'
         neverStarted  = 'Chrome ещё ни разу не запускался под этой учётной записью Windows (нет {0}). Запустите Chrome один раз, закройте его и запустите скрипт снова. Ничего не изменено.'
-        flagExpiry    = 'Срок флага {0} истёк после Chrome {1}, а установлен Chrome {2}: Chrome его игнорирует. Пока в chrome://flags есть #temporary-unexpire-flags-m{1}, его включение возвращает флаг.'
+        flagExpiry    = 'Срок флага {0} истёк после Chrome {1}, а установлен Chrome {2}: Chrome его игнорирует и удалит при следующем запуске. Чтобы временно вернуть его, включите chrome://flags/#temporary-unexpire-flags-m{1}, перезапустите Chrome и снова запустите скрипт.'
         confirmClose  = 'Google Chrome запущен и будет закрыт. Загрузки, звонки и неотправленные формы в Chrome будут прерваны.'
         confirmPrompt = 'Закрыть Chrome сейчас? [Y/N]'
         cancelled     = 'Отменено. Ничего не изменено.'
@@ -190,6 +196,8 @@ $Messages = @{
         needWinPS     = 'Скрипту нужен Windows PowerShell 5.1 (powershell.exe, встроен в Windows 10 и 11).'
         done          = 'Готово. Если Gemini не появился, откройте chrome://version и проверьте, что в строке "Command Line" есть --variations-override-country, а в chrome://flags/#glic стоит Enabled.'
         restoreDone   = 'Откат завершён. Chrome снова использует ваши языки и регион.'
+        restorePartial = 'Откат завершён, кроме общих ярлыков: Chrome, запущенный с них, всё ещё работает с en-US и подменой региона. Запустите -Restore ещё раз и подтвердите запрос Windows.'
+        backupRetired = 'Резервная копия перенесена в {0}; следующий запуск сохранит состояние, каким оно будет тогда.'
         doneErrors    = 'Завершено с ошибками, см. сообщения выше.'
         undo          = 'Как откатить изменения: запустите chrome-gemini-unlock.bat -Restore (раздел «Откат» в README).'
     }
@@ -204,7 +212,7 @@ $Messages = @{
         userData      = 'Dossier des profils : {0}'
         chromeMissing = 'Google Chrome n''est pas installé : rien trouvé dans le registre, parmi les programmes en cours ni dans les dossiers standard. Rien n''a été modifié.'
         neverStarted  = 'Chrome n''a encore jamais été démarré sur ce compte Windows ({0} est absent). Démarrez Chrome une fois, fermez-le et relancez le script. Rien n''a été modifié.'
-        flagExpiry    = 'Le flag {0} a expiré après Chrome {1} et la version installée est Chrome {2} : Chrome l''ignore. Tant que chrome://flags/#temporary-unexpire-flags-m{1} existe, l''activer rétablit le flag.'
+        flagExpiry    = 'Le flag {0} a expiré après Chrome {1} et la version installée est Chrome {2} : Chrome l''ignore et le supprimera au prochain démarrage. Pour le rétablir pour l''instant, activez chrome://flags/#temporary-unexpire-flags-m{1}, redémarrez Chrome, puis relancez le script.'
         confirmClose  = 'Google Chrome est en cours d''exécution et va être fermé. Les téléchargements, appels et formulaires non envoyés dans Chrome seront interrompus.'
         confirmPrompt = 'Fermer Chrome maintenant ? [O/N]'
         cancelled     = 'Annulé. Rien n''a été modifié.'
@@ -250,6 +258,8 @@ $Messages = @{
         needWinPS     = 'Ce script nécessite Windows PowerShell 5.1 (powershell.exe, intégré à Windows 10 et 11).'
         done          = 'Terminé. Si Gemini n''apparaît pas, ouvrez chrome://version et vérifiez que « Command Line » contient --variations-override-country, et que chrome://flags/#glic est sur Enabled.'
         restoreDone   = 'Restauration terminée. Chrome utilise de nouveau vos langues et votre région.'
+        restorePartial = 'Restauration terminée, sauf pour les raccourcis communs : Chrome lancé depuis eux utilise encore en-US et le changement de région. Relancez -Restore et confirmez la demande de Windows.'
+        backupRetired = 'La sauvegarde a été déplacée vers {0} ; la prochaine exécution enregistrera l''état tel qu''il sera alors.'
         doneErrors    = 'Terminé avec des erreurs, voir les messages ci-dessus.'
         undo          = 'Pour annuler : lancez chrome-gemini-unlock.bat -Restore (voir la section « Annulation » du README).'
     }
@@ -264,7 +274,7 @@ $Messages = @{
         userData      = 'Profilordner: {0}'
         chromeMissing = 'Google Chrome ist nicht installiert: weder in der Registrierung noch unter laufenden Programmen oder in den Standardordnern gefunden. Es wurde nichts geändert.'
         neverStarted  = 'Chrome wurde in diesem Windows-Konto noch nie gestartet ({0} fehlt). Starten Sie Chrome einmal, schließen Sie es und führen Sie das Skript erneut aus. Es wurde nichts geändert.'
-        flagExpiry    = 'Flag {0} ist nach Chrome {1} abgelaufen, installiert ist Chrome {2}: Chrome ignoriert es. Solange es chrome://flags/#temporary-unexpire-flags-m{1} gibt, holt dessen Aktivierung das Flag zurück.'
+        flagExpiry    = 'Flag {0} ist nach Chrome {1} abgelaufen, installiert ist Chrome {2}: Chrome ignoriert es und entfernt es beim nächsten Start. Um es vorerst zurückzuholen, chrome://flags/#temporary-unexpire-flags-m{1} aktivieren, Chrome neu starten und das Skript erneut ausführen.'
         confirmClose  = 'Google Chrome läuft und wird geschlossen. Downloads, Anrufe und nicht abgeschickte Formulareingaben in Chrome werden unterbrochen.'
         confirmPrompt = 'Chrome jetzt schließen? [J/N]'
         cancelled     = 'Abgebrochen. Es wurde nichts geändert.'
@@ -310,6 +320,8 @@ $Messages = @{
         needWinPS     = 'Dieses Skript benötigt Windows PowerShell 5.1 (powershell.exe, in Windows 10 und 11 enthalten).'
         done          = 'Fertig. Falls Gemini nicht erscheint, öffnen Sie chrome://version und prüfen Sie, ob „Command Line“ --variations-override-country enthält und chrome://flags/#glic auf Enabled steht.'
         restoreDone   = 'Wiederherstellung abgeschlossen. Chrome verwendet wieder Ihre Sprachen und Region.'
+        restorePartial = 'Wiederherstellung abgeschlossen, außer für die gemeinsamen Verknüpfungen: Ein darüber gestartetes Chrome nutzt weiter en-US und den Regions-Override. Führen Sie -Restore erneut aus und bestätigen Sie die Windows-Abfrage.'
+        backupRetired = 'Die Sicherung wurde nach {0} verschoben; der nächste Lauf sichert den Zustand, wie er dann ist.'
         doneErrors    = 'Mit Fehlern beendet, siehe Meldungen oben.'
         undo          = 'Rückgängig machen: chrome-gemini-unlock.bat -Restore ausführen (siehe Abschnitt „Rückgängig machen“ in der README).'
     }
@@ -325,6 +337,8 @@ function T([string]$Key) {
 }
 
 $script:HadErrors = $false
+# Shared shortcuts left as they are (-NoAdmin or a declined UAC prompt): a restore is then not complete
+$script:SharedSkipped = $false
 function Write-LogLine([string]$Line) {
     if (-not $LogFile) { return }
     # Only the elevated copy logs; it checks for a planted link before every write and stops if one appears
@@ -402,6 +416,8 @@ $FlagExpiry = @{
 $Languages           = 'en-US,en'
 $ProfileLanguageKeys = 'app_locale', 'accept_languages', 'selected_languages'
 $OverrideArgs        = "--variations-override-country=$Country --lang=en-US"
+# What Add-OverrideArgs puts in front of a shortcut's arguments, with any country
+$OverridePrefixPattern = '^--variations-override-country=[a-z]{2} --lang=en-US(\s+|$)'
 $ChromeSub           = 'Google\Chrome\Application\chrome.exe'
 $UserData            = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'
 $MySession           = (Get-Process -Id $PID).SessionId
@@ -735,6 +751,26 @@ function Restore-Shortcuts($Entries) {
     }
 }
 
+# Chrome shortcuts that carry the override but have no backup, such as a taskbar pin or a copy
+# made from a changed shortcut: -Restore takes the two switches off them
+function Get-UnlistedShortcuts($Dirs, $Entries) {
+    $listed = @($Entries | ForEach-Object { $_.Target })
+    foreach ($s in Get-ChromeShortcuts $Dirs) {
+        if ($listed -notcontains $s.Path -and $s.Link.Arguments -cmatch $OverridePrefixPattern) { $s }
+    }
+}
+
+function Remove-OverrideFromShortcuts($Shortcuts) {
+    foreach ($s in $Shortcuts) {
+        try {
+            $s.Link.Arguments = $s.Link.Arguments -creplace $OverridePrefixPattern, ''
+            $s.Link.Save()
+            Ok (T 'restoreShortcut' $s.Path)
+            Note $s.Link.Arguments
+        } catch { Fail "$($s.Path): $($_.Exception.Message)" }
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Administrator rights for the shortcuts shared by all users
 # ---------------------------------------------------------------------------
@@ -789,7 +825,7 @@ function Invoke-ElevatedShortcuts {
     try {
         $proc = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -Wait -PassThru `
             -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
-    } catch { Warn (T 'adminDeclined') }
+    } catch { Warn (T 'adminDeclined'); $script:SharedSkipped = $true }
     Remove-Item -LiteralPath $copy -Force -ErrorAction SilentlyContinue
     if (-not $proc) { return }
     $hasLog = (Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 0
@@ -811,7 +847,9 @@ if ($SystemShortcutsOnly) {
     try { Assert-NoLink $LogFile } catch { exit 4 }
     try {
         if ($Restore) {
-            Restore-Shortcuts @(Read-Manifest | Where-Object { $_.Kind -eq 'Shortcut' -and (Test-SharedShortcut $_.Target) })
+            $entries = @(Read-Manifest | Where-Object { $_.Kind -eq 'Shortcut' })
+            Restore-Shortcuts @($entries | Where-Object { Test-SharedShortcut $_.Target })
+            Remove-OverrideFromShortcuts @(Get-UnlistedShortcuts $SystemShortcutDirs $entries)
         } else {
             Update-Shortcuts @(Get-ChromeShortcuts $SystemShortcutDirs)
         }
@@ -904,10 +942,15 @@ if ($Restore) {
 } else {
     $chromeMajor = 0
     if ([string]$installs[0].Version -match '^(\d+)\.') { $chromeMajor = [int]$Matches[1] }
+    # A flag Chrome already brings back through temporary-unexpire-flags-m<expiry> needs no warning
+    $enabledNow = @()
+    try { $enabledNow = @(Get-ForeignFlags (Get-Section (Read-Json $localState) 'browser')) } catch { }
     foreach ($f in $Flags) {
         $name = $f.Split('@')[0]
         $expiry = Get-FlagExpiry $name $chromeMajor
-        if ($chromeMajor -and $expiry -lt $chromeMajor) { Warn (T 'flagExpiry' $name $expiry $chromeMajor) }
+        if ($chromeMajor -and $expiry -lt $chromeMajor -and $enabledNow -notcontains "temporary-unexpire-flags-m$expiry@1") {
+            Warn (T 'flagExpiry' $name $expiry $chromeMajor)
+        }
     }
 }
 
@@ -967,16 +1010,19 @@ if ($Restore) {
 
     # ---- 4. Shortcuts of the current user
     $shortcutEntries = @($entries | Where-Object { $_.Kind -eq 'Shortcut' })
-    try { Restore-Shortcuts @($shortcutEntries | Where-Object { -not (Test-SharedShortcut $_.Target) }) }
-    catch { Fail $_.Exception.Message }
+    try {
+        Restore-Shortcuts @($shortcutEntries | Where-Object { -not (Test-SharedShortcut $_.Target) })
+        Remove-OverrideFromShortcuts @(Get-UnlistedShortcuts $UserShortcutDirs $shortcutEntries)
+    } catch { Fail $_.Exception.Message }
 
     # ---- 5. Shortcuts shared by all users (administrator rights)
     try {
-        $shared  = @($shortcutEntries | Where-Object { Test-SharedShortcut $_.Target })
-        $pending = @($shared | Where-Object { Test-RestorePending $_ })
+        $shared   = @($shortcutEntries | Where-Object { Test-SharedShortcut $_.Target })
+        $unlisted = @(Get-UnlistedShortcuts $SystemShortcutDirs $shortcutEntries)
+        $pending  = @($shared | Where-Object { Test-RestorePending $_ }) + $unlisted
         if ($pending.Count -eq 0) { Restore-Shortcuts $shared }
-        elseif ($NoAdmin) { Warn (T 'adminSkip') }
-        elseif (Test-IsAdmin) { Restore-Shortcuts $shared }
+        elseif ($NoAdmin) { Warn (T 'adminSkip'); $script:SharedSkipped = $true }
+        elseif (Test-IsAdmin) { Restore-Shortcuts $shared; Remove-OverrideFromShortcuts $unlisted }
         else { Warn (T 'adminAsk'); Invoke-ElevatedShortcuts }
     } catch { Fail $_.Exception.Message }
 
@@ -1009,6 +1055,17 @@ if ($Restore) {
             Ok (T 'restoreHandler' $e.Target)
         }
     } catch { Fail (T 'handler' $_.Exception.Message) }
+
+    # ---- A complete restore retires the backup: otherwise a later -Restore would go back to the
+    # state before the very first run and undo what the user set up after this one
+    $retired = $null
+    if (-not $script:HadErrors -and -not $script:SharedSkipped) {
+        $target = '{0}-restored-{1}' -f $BackupDir, (Get-Date -Format 'yyyyMMdd-HHmmss')
+        try {
+            Move-Item -LiteralPath $BackupDir -Destination $target
+            $retired = $target
+        } catch { Warn "$BackupDir : $($_.Exception.Message)" }
+    }
 } else {
     # ---- 2. Local State: flags, interface language, stored country
     $state = $null
@@ -1156,12 +1213,14 @@ if ($NoLaunch) {
 Write-Host ''
 if ($script:HadErrors) {
     Write-Host (T 'doneErrors') -ForegroundColor Red
+} elseif ($Restore -and $script:SharedSkipped) {
+    Write-Host (T 'restorePartial') -ForegroundColor Yellow
 } elseif ($Restore) {
     Write-Host (T 'restoreDone') -ForegroundColor Cyan
 } else {
     Write-Host (T 'done') -ForegroundColor Cyan
 }
-Note (T 'backup' $BackupDir)
+if ($Restore -and $retired) { Note (T 'backupRetired' $retired) } else { Note (T 'backup' $BackupDir) }
 if (-not $Restore) { Note (T 'undo') }
 if ($script:HadErrors) { exit 2 }
 exit 0

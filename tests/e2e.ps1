@@ -281,7 +281,9 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PrefsPath) | Out-Null
         [System.IO.File]::WriteAllText($PrefsPath, '{}', $Utf8)
     }
-    if (Test-Path -LiteralPath $BackupRoot) { Remove-Item -LiteralPath $BackupRoot -Recurse -Force }
+    # Also backups that earlier complete restores retired (backup-restored-*)
+    $BackupParent = Split-Path -Parent $BackupRoot
+    if (Test-Path -LiteralPath $BackupParent) { Remove-Item -LiteralPath $BackupParent -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
 
     # Seed: a foreign flag, a managed flag in another state, Russian languages
@@ -427,10 +429,26 @@ try {
     Stop-AllChrome
 
     # -----------------------------------------------------------------------
+    Write-Step 'Partial restore: -Restore -NoAdmin leaves the shared shortcuts and the backup'
+    # A shortcut that got the override without a backup, like a taskbar pin made from a changed shortcut
+    $CopyLnk = Join-Path (Split-Path -Parent $DesktopLnk) 'E2E Chrome Copy.lnk'
+    Copy-Item -LiteralPath $DesktopLnk -Destination $CopyLnk -Force
+    $r = Invoke-Unlock -Arguments @('-Restore', '-NoAdmin', '-Force', '-NoLaunch')
+    Test-ExitCode $r 0
+    Test-Output $r 'adminSkip'
+    Test-Output $r 'restorePartial'
+    Test-Same 'desktop shortcut arguments back' (Get-ShortcutArguments $DesktopLnk) $DesktopArgs
+    Test-Same 'shortcut without a backup loses the override' (Get-ShortcutArguments $CopyLnk) '--profile-directory="Profile 1"'
+    Test-Same 'shared shortcut still has the override' (Get-ShortcutArguments $SharedLnk) $Override
+    Write-Check (Test-Path -LiteralPath $ManifestPath) 'backup kept after a partial restore'
+
+    # -----------------------------------------------------------------------
     Write-Step 'Restore: -Restore -Force -NoLaunch'
     $r = Invoke-Unlock -Arguments @('-Restore', '-Force', '-NoLaunch')
     Test-ExitCode $r 0
     Test-Output $r 'restoreDone'
+    $retired = @(Get-ChildItem -LiteralPath (Split-Path -Parent $BackupRoot) -Directory -Filter 'backup-restored-*')
+    Write-Check ((-not (Test-Path -LiteralPath $BackupRoot)) -and $retired.Count -eq 1) 'a complete restore retires the backup folder' "backup exists: $(Test-Path -LiteralPath $BackupRoot), retired: $($retired.Count)"
     $state = Read-TestJson $LocalStatePath
     Test-Same 'Local State flags back to the seeded ones' (Get-Flags $state) $SeedFlags
     Test-Same 'Local State intl.app_locale back' (Get-JsonValue $state 'intl', 'app_locale') 'ru'
@@ -458,6 +476,8 @@ try {
         Test-ExitCode $r 0
         Test-Output $r 'relaunch'
         Test-Output $r 'noLaunch'
+        $backup = Test-ManifestBackup 'fresh Local State backup after the retired one' $LocalStatePath 'Local State'
+        if ($backup) { Test-Same 'the fresh backup holds the restored state' (Get-Flags (Read-TestJson $backup)) $SeedFlags }
         Test-Same 'Local State flags after the PowerShell 7 run' (Get-Flags (Read-TestJson $LocalStatePath)) (@('smooth-scrolling@2') + $BaseFlags)
         $r = Invoke-Unlock -Arguments @('-Restore', '-Force', '-NoLaunch')
         Test-ExitCode $r 0
@@ -471,6 +491,8 @@ try {
     $copyBytes = $Utf8.GetBytes([System.IO.File]::ReadAllText($ScriptUnderTest))
     $copyHash = Get-Sha256Hex $copyBytes
     $bootArgs = "-SystemShortcutsOnly -Country us -BackupDir $(ConvertTo-PSLiteral $BackupRoot) -LogFile $(ConvertTo-PSLiteral $ElevatedLog)"
+    # The last complete restore retired the backup folder
+    New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
     [System.IO.File]::WriteAllBytes($ElevatedCopy, [byte[]]($copyBytes + [byte]10))
     $r = Invoke-Bootstrap $bootArgs $copyHash
     Test-ExitCode $r 3
@@ -503,7 +525,7 @@ try {
     Write-Step 'Cleanup'
     try {
         Stop-AllChrome
-        foreach ($lnk in $DesktopLnk, $SharedLnk) {
+        foreach ($lnk in $DesktopLnk, $SharedLnk, $CopyLnk) {
             if ($lnk -and (Test-Path -LiteralPath $lnk)) { Remove-Item -LiteralPath $lnk -Force }
         }
         $key = $HKCU.OpenSubKey($RunSubKey, $true)

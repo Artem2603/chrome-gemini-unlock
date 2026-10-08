@@ -918,3 +918,35 @@ Describe 'Running the whole script outside Windows PowerShell' {
         $rest -contains '-NoLaunch' | Should -BeTrue
     }
 }
+
+Describe 'Override prefix for shortcuts without a backup' {
+    It 'matches exactly what Add-OverrideArgs puts in front, with any country' {
+        foreach ($cc in 'us', 'de', 'gb') {
+            $Override2 = "--variations-override-country=$cc --lang=en-US"
+            ($Override2 -cmatch $OverridePrefixPattern) | Should -BeTrue -Because $cc
+            ("$Override2 --profile-directory=`"Profile 1`"" -creplace $OverridePrefixPattern, '') | Should -BeExactly '--profile-directory="Profile 1"'
+        }
+    }
+
+    It 'taking the prefix off undoes Add-OverrideArgs for arguments without its switches' {
+        foreach ($a in '', '--profile-directory="Profile 1"', '--new-window --incognito', '"C:\a b.html"') {
+            ((Add-OverrideArgs $a) -creplace $OverridePrefixPattern, '') | Should -BeExactly $a -Because "[$a]"
+        }
+    }
+
+    It 'leaves arguments alone that only look similar' {
+        foreach ($a in '--lang=en-US --variations-override-country=us', '--variations-override-country=usa --lang=en-US',
+                       '--variations-override-country=us --lang=en-GB', ' --variations-override-country=us --lang=en-US', '--new-window') {
+            ($a -cmatch $OverridePrefixPattern) | Should -BeFalse -Because "[$a]"
+        }
+    }
+}
+
+Describe 'Comment-based help' {
+    It 'Get-Help reads the synopsis and the new parameters' {
+        $help = Get-Help $ScriptUnderTest -Full
+        $help.Synopsis | Should -Match 'Gemini side panel'
+        @($help.parameters.parameter | ForEach-Object { $_.name }) | Should -Contain 'Restore'
+        @($help.parameters.parameter | ForEach-Object { $_.name }) | Should -Contain 'Agent'
+    }
+}

@@ -12,7 +12,7 @@ $ScriptUnderTest = Join-Path (Split-Path -Parent $PSScriptRoot) 'chrome-gemini-u
 # lookups, the main run) is left out
 $DefinitionVariables = @(
     'Messages', 'BaseFlags', 'AgentFlags', 'Flags', 'ManagedFlags', 'FlagExpiry', 'Languages',
-    'ProfileLanguageKeys', 'OverrideArgs', 'ChromeSub', 'RunName', 'HandlerKeyPattern', 'Utf8'
+    'ProfileLanguageKeys', 'OverrideArgs', 'OverridePrefixPattern', 'ChromeSub', 'RunName', 'HandlerKeyPattern', 'Utf8'
 )
 
 function Get-ScriptAst([string]$Path = $ScriptUnderTest) {
