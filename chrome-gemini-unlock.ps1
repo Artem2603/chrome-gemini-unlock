@@ -1,13 +1,14 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Enables the Gemini side panel (Glic) and its agent features in Google Chrome on Windows.
+    Enables the Gemini side panel (Glic) in Google Chrome on Windows.
 
 .DESCRIPTION
     0. Looks for Google Chrome (registry, running processes, standard folders) and stops
        without changing anything if Chrome is missing or has never been started.
-    1. Closes Google Chrome: windows first, leftovers by force.
+    1. Asks before closing Google Chrome, then closes it: windows first, leftovers by force.
     2. Enables the Glic flags in "Local State" and sets the interface language to en-US.
+       The agent flags, which let Gemini act on web pages, are enabled only with -Agent.
     3. Switches every Chrome profile to en-US.
     4. Adds --variations-override-country=<Country> --lang=en-US to every way Chrome
        is started: shortcuts, the autostart entry and the link handler. The country is
@@ -16,9 +17,22 @@
 
     The state from before the first run is saved once to
     %LOCALAPPDATA%\chrome-gemini-unlock\backup and never overwritten by later runs.
+    -Restore puts that state back.
 
 .PARAMETER Country
     Two-letter country code Chrome should use for its experiments. Default: us.
+
+.PARAMETER Agent
+    Also enable the agent features: Gemini clicking, typing and filling in forms on web
+    pages for you. Without -Agent these flags are set back to Default.
+
+.PARAMETER Force
+    Close Chrome without asking first.
+
+.PARAMETER Restore
+    Undo the changes: the Glic flags, languages, stored country, shortcuts, the autostart
+    entry and the link handler return to the state before the first run. Other Chrome
+    settings are kept.
 
 .PARAMETER NoAdmin
     Never ask for administrator rights. Shortcuts shared by all users stay unchanged.
@@ -29,15 +43,22 @@
 .EXAMPLE
     .\chrome-gemini-unlock.ps1
 .EXAMPLE
+    .\chrome-gemini-unlock.ps1 -Agent
+.EXAMPLE
+    .\chrome-gemini-unlock.ps1 -Restore
+.EXAMPLE
     .\chrome-gemini-unlock.ps1 -NoAdmin -NoLaunch
 #>
 [CmdletBinding()]
 param(
-    [ValidatePattern('^[A-Za-z]{2}$')]
+    [ValidatePattern('^[A-Za-z]{2}\z')]
     [string]$Country = 'us',
+    [switch]$Agent,
+    [switch]$Force,
+    [switch]$Restore,
     [switch]$NoAdmin,
     [switch]$NoLaunch,
-    # Internal: the elevated copy of the script only updates shortcuts shared by all users
+    # Internal: the elevated copy of the script only handles shortcuts shared by all users
     [switch]$SystemShortcutsOnly,
     [string]$BackupDir,
     [string]$LogFile
@@ -45,25 +66,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Country = $Country.ToLowerInvariant()
-
-$Flags = @(
-    'glic@1',
-    'glic-actor@1',
-    'enable-browser-actuator-for-glic-experimental-triggering@1',
-    'glic-background-actuation@1',
-    'glic-actor-autofill@1',
-    'glic-actor-cursor@1',
-    'glic-actor-script-tools@1',
-    'glic-toolbar-height-side-panel@1',
-    'glic-horizontal-tab-toolbar-button@1',
-    'glic-toolbar-button-location@1',
-    'glic-context-menu-below-search@1'
-)
-$Languages    = 'en-US,en'
-$OverrideArgs = "--variations-override-country=$Country --lang=en-US"
-$ChromeSub    = 'Google\Chrome\Application\chrome.exe'
-$UserData     = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'
-$MySession    = (Get-Process -Id $PID).SessionId
+# The exact text this process runs; the elevated copy is checked against it (Invoke-ElevatedShortcuts)
+$ScriptText = $MyInvocation.MyCommand.ScriptContents
 
 # ---------------------------------------------------------------------------
 # Messages
@@ -80,12 +84,19 @@ $Messages = @{
         userData      = 'Profile folder: {0}'
         chromeMissing = 'Google Chrome is not installed: nothing found in the registry, among running programs or in the standard folders. Nothing was changed.'
         neverStarted  = 'Chrome has not been started in this Windows account yet ({0} is missing). Start Chrome once, close it and run the script again. Nothing was changed.'
+        flagExpiry    = 'Flag {0} was due to expire after Chrome {1}, this is Chrome {2}: Chrome may ignore it. Check chrome://flags/#{0}.'
+        confirmClose  = 'Google Chrome is running and will be closed. Downloads, calls and unsent form input in Chrome will be interrupted.'
+        confirmPrompt = 'Close Chrome now? [Y/N]'
+        cancelled     = 'Cancelled. Nothing was changed.'
+        needForce     = 'Cannot ask before closing Chrome in a non-interactive session. Run the script with -Force. Nothing was changed.'
         closing       = 'Closing Google Chrome...'
         closed        = 'Chrome closed'
         restoreHint   = 'Some Chrome windows did not close normally. If Chrome offers to restore pages on the next start, click Restore.'
         stillRunning  = 'chrome.exe is still running. Close Chrome manually and run the script again.'
         backup        = 'Backups (state before the first run): {0}'
         localState    = 'Local State: {0} Glic flags, interface language en-US, country {1}'
+        agentOn       = 'Agent features are on (-Agent): Gemini can click, type and fill in forms on web pages for you. Keep an eye on what it does.'
+        agentOff      = 'Agent features are off. To let Gemini act on web pages for you, run the script with -Agent.'
         profile       = 'Profile {0}: languages {1}'
         profileSkip   = 'Profile {0}: no Preferences file, skipped'
         shortcut      = 'Shortcut: {0}'
@@ -93,17 +104,33 @@ $Messages = @{
         adminAsk      = 'Shortcuts shared by all users need administrator rights; the change affects every Windows account on this PC. Confirm the Windows (UAC) prompt, or decline to skip them.'
         adminDeclined = 'Administrator rights were not granted, shared shortcuts were left unchanged.'
         adminNoRun    = 'The administrator copy of the script did not run (exit code {0}), shared shortcuts were left unchanged. Run the script from a folder on a local disk, or use -NoAdmin.'
+        adminTampered = 'The administrator copy of the script was changed before it could run, so it was not run: {0}. Shared shortcuts were left unchanged.'
         adminSkip     = 'Shared shortcuts skipped (-NoAdmin).'
+        unsafePath    = 'The backup folder contains a junction or symbolic link, nothing is written through it: {0}'
         autostart     = 'Autostart entry: {0}'
         handler       = 'Link handler: {0}'
         handlerOk     = 'Link handler already set up: {0}'
         started       = 'Chrome started with {0} (PID {1})'
+        startedPlain  = 'Chrome started (PID {0})'
         startTimeout  = 'Chrome did not start within 15 seconds. Start it from a shortcut.'
         startFail     = 'Chrome is running, but without the region override. Close it and start it from a shortcut.'
         noLaunch      = 'Chrome was not started (-NoLaunch).'
-        done          = 'Done. If Gemini does not appear, open chrome://version and check that "Command Line" contains --variations-override-country.'
+        noLaunchAdmin = 'Chrome was not started: the script runs with administrator rights, and Chrome started from it would get them too. Start Chrome from a shortcut.'
+        noBackup      = 'No backup in {0}: the script has not changed anything here yet, so there is nothing to restore.'
+        restoreLocal  = 'Local State: Glic flags, interface language and country restored'
+        restoreProfile = 'Profile {0}: languages restored'
+        restoreShortcut = 'Shortcut restored: {0}'
+        restoreShortcutOk = 'Shortcut already as before: {0}'
+        restoreMissing = 'No longer exists, skipped: {0}'
+        restoreAutostart = 'Autostart entry restored: {0}'
+        restoreHandler = 'Link handler restored: {0}'
+        restoreHandlerDeleted = 'Link handler copy removed: {0}'
+        relaunch      = 'PowerShell 7 detected: restarting in Windows PowerShell 5.1...'
+        needWinPS     = 'This script needs Windows PowerShell 5.1 (powershell.exe, built into Windows 10 and 11).'
+        done          = 'Done. If Gemini does not appear, open chrome://version and check that "Command Line" contains --variations-override-country, and that chrome://flags/#glic is Enabled.'
+        restoreDone   = 'Restore finished. Chrome uses your own languages and region again.'
         doneErrors    = 'Finished with errors, see the messages above.'
-        undo          = 'How to undo: see the "Undo" section in README.'
+        undo          = 'How to undo: run chrome-gemini-unlock.bat -Restore (see "Undo" in README).'
     }
     ru = @{
         title         = 'Chrome Gemini Unlock: боковая панель Gemini (Glic) в Google Chrome'
@@ -116,12 +143,19 @@ $Messages = @{
         userData      = 'Папка профилей: {0}'
         chromeMissing = 'Google Chrome не установлен: его нет ни в реестре, ни среди запущенных программ, ни в стандартных папках. Ничего не изменено.'
         neverStarted  = 'Chrome ещё ни разу не запускался под этой учётной записью Windows (нет {0}). Запустите Chrome один раз, закройте его и запустите скрипт снова. Ничего не изменено.'
+        flagExpiry    = 'Срок флага {0} истекал после Chrome {1}, а установлен Chrome {2}: Chrome может его игнорировать. Проверьте chrome://flags/#{0}.'
+        confirmClose  = 'Google Chrome запущен и будет закрыт. Загрузки, звонки и неотправленные формы в Chrome будут прерваны.'
+        confirmPrompt = 'Закрыть Chrome сейчас? [Y/N]'
+        cancelled     = 'Отменено. Ничего не изменено.'
+        needForce     = 'Не могу спросить перед закрытием Chrome: сеанс не интерактивный. Запустите скрипт с -Force. Ничего не изменено.'
         closing       = 'Закрываю Google Chrome...'
         closed        = 'Chrome закрыт'
         restoreHint   = 'Часть окон Chrome не закрылась штатно. Если при следующем запуске Chrome предложит восстановить страницы, нажмите «Восстановить» (Restore).'
         stillRunning  = 'chrome.exe всё ещё работает. Закройте Chrome вручную и запустите скрипт снова.'
         backup        = 'Резервные копии (состояние до первого запуска): {0}'
         localState    = 'Local State: флагов Glic: {0}, язык интерфейса en-US, страна {1}'
+        agentOn       = 'Агентские функции включены (-Agent): Gemini может нажимать, вводить текст и заполнять формы на веб-страницах за вас. Следите за тем, что он делает.'
+        agentOff      = 'Агентские функции выключены. Чтобы Gemini мог действовать на веб-страницах за вас, запустите скрипт с -Agent.'
         profile       = 'Профиль {0}: языки {1}'
         profileSkip   = 'Профиль {0}: нет файла Preferences, пропущен'
         shortcut      = 'Ярлык: {0}'
@@ -129,17 +163,33 @@ $Messages = @{
         adminAsk      = 'Для общих ярлыков нужны права администратора; изменение затронет все учётные записи Windows на этом компьютере. Подтвердите запрос Windows (UAC) или откажитесь, чтобы их пропустить.'
         adminDeclined = 'Права администратора не получены, общие ярлыки не изменены.'
         adminNoRun    = 'Копия скрипта с правами администратора не запустилась (код выхода {0}), общие ярлыки не изменены. Запустите скрипт из папки на локальном диске или используйте -NoAdmin.'
+        adminTampered = 'Копия скрипта для администратора была изменена до запуска, поэтому не запущена: {0}. Общие ярлыки не изменены.'
         adminSkip     = 'Общие ярлыки пропущены (-NoAdmin).'
+        unsafePath    = 'В папке резервных копий есть точка соединения или символическая ссылка, запись через неё не выполняется: {0}'
         autostart     = 'Автозагрузка: {0}'
         handler       = 'Обработчик ссылок: {0}'
         handlerOk     = 'Обработчик ссылок уже настроен: {0}'
         started       = 'Chrome запущен с {0} (PID {1})'
+        startedPlain  = 'Chrome запущен (PID {0})'
         startTimeout  = 'Chrome не запустился за 15 секунд. Запустите его с ярлыка.'
         startFail     = 'Chrome работает, но без подмены региона. Закройте его и запустите с ярлыка.'
         noLaunch      = 'Chrome не запускался (-NoLaunch).'
-        done          = 'Готово. Если Gemini не появился, откройте chrome://version и проверьте, что в строке "Command Line" есть --variations-override-country.'
+        noLaunchAdmin = 'Chrome не запущен: скрипт работает с правами администратора, и запущенный из него Chrome получил бы их тоже. Запустите Chrome с ярлыка.'
+        noBackup      = 'В {0} нет резервной копии: скрипт здесь ещё ничего не менял, восстанавливать нечего.'
+        restoreLocal  = 'Local State: флаги Glic, язык интерфейса и страна восстановлены'
+        restoreProfile = 'Профиль {0}: языки восстановлены'
+        restoreShortcut = 'Ярлык восстановлен: {0}'
+        restoreShortcutOk = 'Ярлык уже в исходном виде: {0}'
+        restoreMissing = 'Больше не существует, пропущено: {0}'
+        restoreAutostart = 'Автозагрузка восстановлена: {0}'
+        restoreHandler = 'Обработчик ссылок восстановлен: {0}'
+        restoreHandlerDeleted = 'Копия обработчика ссылок удалена: {0}'
+        relaunch      = 'Обнаружен PowerShell 7: перезапуск в Windows PowerShell 5.1...'
+        needWinPS     = 'Скрипту нужен Windows PowerShell 5.1 (powershell.exe, встроен в Windows 10 и 11).'
+        done          = 'Готово. Если Gemini не появился, откройте chrome://version и проверьте, что в строке "Command Line" есть --variations-override-country, а в chrome://flags/#glic стоит Enabled.'
+        restoreDone   = 'Откат завершён. Chrome снова использует ваши языки и регион.'
         doneErrors    = 'Завершено с ошибками, см. сообщения выше.'
-        undo          = 'Как откатить изменения: раздел «Откат» в README.'
+        undo          = 'Как откатить изменения: запустите chrome-gemini-unlock.bat -Restore (раздел «Откат» в README).'
     }
     fr = @{
         title         = 'Chrome Gemini Unlock : panneau latéral Gemini (Glic) pour Google Chrome'
@@ -152,12 +202,19 @@ $Messages = @{
         userData      = 'Dossier des profils : {0}'
         chromeMissing = 'Google Chrome n''est pas installé : rien trouvé dans le registre, parmi les programmes en cours ni dans les dossiers standard. Rien n''a été modifié.'
         neverStarted  = 'Chrome n''a encore jamais été démarré sur ce compte Windows ({0} est absent). Démarrez Chrome une fois, fermez-le et relancez le script. Rien n''a été modifié.'
+        flagExpiry    = 'Le flag {0} devait expirer après Chrome {1}, la version installée est Chrome {2} : Chrome peut l''ignorer. Vérifiez chrome://flags/#{0}.'
+        confirmClose  = 'Google Chrome est en cours d''exécution et va être fermé. Les téléchargements, appels et formulaires non envoyés dans Chrome seront interrompus.'
+        confirmPrompt = 'Fermer Chrome maintenant ? [O/N]'
+        cancelled     = 'Annulé. Rien n''a été modifié.'
+        needForce     = 'Impossible de demander avant de fermer Chrome dans une session non interactive. Lancez le script avec -Force. Rien n''a été modifié.'
         closing       = 'Fermeture de Google Chrome...'
         closed        = 'Chrome fermé'
         restoreHint   = 'Certaines fenêtres de Chrome ne se sont pas fermées normalement. Si Chrome propose de restaurer les pages au prochain démarrage, cliquez sur Restaurer (Restore).'
         stillRunning  = 'chrome.exe est toujours en cours d''exécution. Fermez Chrome manuellement et relancez le script.'
         backup        = 'Sauvegardes (état avant la première exécution) : {0}'
         localState    = 'Local State : {0} flags Glic, langue de l''interface en-US, pays {1}'
+        agentOn       = 'Fonctions d''agent activées (-Agent) : Gemini peut cliquer, saisir du texte et remplir des formulaires sur les pages web à votre place. Surveillez ce qu''il fait.'
+        agentOff      = 'Fonctions d''agent désactivées. Pour que Gemini puisse agir sur les pages web à votre place, lancez le script avec -Agent.'
         profile       = 'Profil {0} : langues {1}'
         profileSkip   = 'Profil {0} : pas de fichier Preferences, ignoré'
         shortcut      = 'Raccourci : {0}'
@@ -165,17 +222,33 @@ $Messages = @{
         adminAsk      = 'Les raccourcis communs nécessitent des droits d''administrateur ; la modification concerne tous les comptes Windows de ce PC. Confirmez la demande UAC de Windows, ou refusez pour les ignorer.'
         adminDeclined = 'Droits d''administrateur refusés, les raccourcis communs n''ont pas été modifiés.'
         adminNoRun    = 'La copie administrateur du script ne s''est pas exécutée (code de sortie {0}), les raccourcis communs n''ont pas été modifiés. Lancez le script depuis un dossier sur un disque local, ou utilisez -NoAdmin.'
+        adminTampered = 'La copie administrateur du script a été modifiée avant son exécution, elle n''a donc pas été lancée : {0}. Les raccourcis communs n''ont pas été modifiés.'
         adminSkip     = 'Raccourcis communs ignorés (-NoAdmin).'
+        unsafePath    = 'Le dossier de sauvegarde contient une jonction ou un lien symbolique, rien n''est écrit à travers : {0}'
         autostart     = 'Démarrage automatique : {0}'
         handler       = 'Gestionnaire de liens : {0}'
         handlerOk     = 'Gestionnaire de liens déjà configuré : {0}'
         started       = 'Chrome démarré avec {0} (PID {1})'
+        startedPlain  = 'Chrome démarré (PID {0})'
         startTimeout  = 'Chrome n''a pas démarré en 15 secondes. Démarrez-le depuis un raccourci.'
         startFail     = 'Chrome fonctionne, mais sans le changement de région. Fermez-le et relancez-le depuis un raccourci.'
         noLaunch      = 'Chrome n''a pas été démarré (-NoLaunch).'
-        done          = 'Terminé. Si Gemini n''apparaît pas, ouvrez chrome://version et vérifiez que « Command Line » contient --variations-override-country.'
+        noLaunchAdmin = 'Chrome n''a pas été démarré : le script s''exécute avec des droits d''administrateur, et un Chrome lancé par lui les aurait aussi. Démarrez Chrome depuis un raccourci.'
+        noBackup      = 'Aucune sauvegarde dans {0} : le script n''a encore rien modifié ici, il n''y a rien à restaurer.'
+        restoreLocal  = 'Local State : flags Glic, langue de l''interface et pays restaurés'
+        restoreProfile = 'Profil {0} : langues restaurées'
+        restoreShortcut = 'Raccourci restauré : {0}'
+        restoreShortcutOk = 'Raccourci déjà dans son état d''origine : {0}'
+        restoreMissing = 'N''existe plus, ignoré : {0}'
+        restoreAutostart = 'Démarrage automatique restauré : {0}'
+        restoreHandler = 'Gestionnaire de liens restauré : {0}'
+        restoreHandlerDeleted = 'Copie du gestionnaire de liens supprimée : {0}'
+        relaunch      = 'PowerShell 7 détecté : redémarrage dans Windows PowerShell 5.1...'
+        needWinPS     = 'Ce script nécessite Windows PowerShell 5.1 (powershell.exe, intégré à Windows 10 et 11).'
+        done          = 'Terminé. Si Gemini n''apparaît pas, ouvrez chrome://version et vérifiez que « Command Line » contient --variations-override-country, et que chrome://flags/#glic est sur Enabled.'
+        restoreDone   = 'Restauration terminée. Chrome utilise de nouveau vos langues et votre région.'
         doneErrors    = 'Terminé avec des erreurs, voir les messages ci-dessus.'
-        undo          = 'Pour annuler : voir la section « Annulation » du README.'
+        undo          = 'Pour annuler : lancez chrome-gemini-unlock.bat -Restore (voir la section « Annulation » du README).'
     }
     de = @{
         title         = 'Chrome Gemini Unlock: Gemini-Seitenleiste (Glic) für Google Chrome'
@@ -188,12 +261,19 @@ $Messages = @{
         userData      = 'Profilordner: {0}'
         chromeMissing = 'Google Chrome ist nicht installiert: weder in der Registrierung noch unter laufenden Programmen oder in den Standardordnern gefunden. Es wurde nichts geändert.'
         neverStarted  = 'Chrome wurde in diesem Windows-Konto noch nie gestartet ({0} fehlt). Starten Sie Chrome einmal, schließen Sie es und führen Sie das Skript erneut aus. Es wurde nichts geändert.'
+        flagExpiry    = 'Flag {0} sollte nach Chrome {1} auslaufen, installiert ist Chrome {2}: Chrome ignoriert es eventuell. Prüfen Sie chrome://flags/#{0}.'
+        confirmClose  = 'Google Chrome läuft und wird geschlossen. Downloads, Anrufe und nicht abgeschickte Formulareingaben in Chrome werden unterbrochen.'
+        confirmPrompt = 'Chrome jetzt schließen? [J/N]'
+        cancelled     = 'Abgebrochen. Es wurde nichts geändert.'
+        needForce     = 'In einer nicht interaktiven Sitzung kann vor dem Schließen von Chrome nicht nachgefragt werden. Starten Sie das Skript mit -Force. Es wurde nichts geändert.'
         closing       = 'Google Chrome wird geschlossen...'
         closed        = 'Chrome geschlossen'
         restoreHint   = 'Einige Chrome-Fenster wurden nicht regulär geschlossen. Wenn Chrome beim nächsten Start anbietet, Seiten wiederherzustellen, klicken Sie auf Wiederherstellen (Restore).'
         stillRunning  = 'chrome.exe läuft noch. Schließen Sie Chrome manuell und starten Sie das Skript erneut.'
         backup        = 'Sicherungen (Zustand vor dem ersten Lauf): {0}'
         localState    = 'Local State: {0} Glic-Flags, Oberflächensprache en-US, Land {1}'
+        agentOn       = 'Agent-Funktionen sind aktiv (-Agent): Gemini kann auf Webseiten für Sie klicken, tippen und Formulare ausfüllen. Behalten Sie im Blick, was es tut.'
+        agentOff      = 'Agent-Funktionen sind aus. Damit Gemini auf Webseiten für Sie handeln kann, starten Sie das Skript mit -Agent.'
         profile       = 'Profil {0}: Sprachen {1}'
         profileSkip   = 'Profil {0}: keine Preferences-Datei, übersprungen'
         shortcut      = 'Verknüpfung: {0}'
@@ -201,17 +281,33 @@ $Messages = @{
         adminAsk      = 'Verknüpfungen für alle Benutzer erfordern Administratorrechte; die Änderung betrifft jedes Windows-Konto auf diesem PC. Bestätigen Sie die UAC-Abfrage von Windows oder lehnen Sie ab, um sie zu überspringen.'
         adminDeclined = 'Keine Administratorrechte erteilt, gemeinsame Verknüpfungen wurden nicht geändert.'
         adminNoRun    = 'Die Administrator-Kopie des Skripts wurde nicht ausgeführt (Exitcode {0}), gemeinsame Verknüpfungen wurden nicht geändert. Starten Sie das Skript aus einem Ordner auf einem lokalen Laufwerk oder verwenden Sie -NoAdmin.'
+        adminTampered = 'Die Administrator-Kopie des Skripts wurde vor dem Start verändert und deshalb nicht ausgeführt: {0}. Gemeinsame Verknüpfungen wurden nicht geändert.'
         adminSkip     = 'Gemeinsame Verknüpfungen übersprungen (-NoAdmin).'
+        unsafePath    = 'Der Sicherungsordner enthält eine Verzweigung oder symbolische Verknüpfung, darüber wird nichts geschrieben: {0}'
         autostart     = 'Autostart-Eintrag: {0}'
         handler       = 'Link-Handler: {0}'
         handlerOk     = 'Link-Handler bereits eingerichtet: {0}'
         started       = 'Chrome gestartet mit {0} (PID {1})'
+        startedPlain  = 'Chrome gestartet (PID {0})'
         startTimeout  = 'Chrome ist nicht innerhalb von 15 Sekunden gestartet. Starten Sie es über eine Verknüpfung.'
         startFail     = 'Chrome läuft, aber ohne Regions-Override. Schließen Sie Chrome und starten Sie es über eine Verknüpfung.'
         noLaunch      = 'Chrome wurde nicht gestartet (-NoLaunch).'
-        done          = 'Fertig. Falls Gemini nicht erscheint, öffnen Sie chrome://version und prüfen Sie, ob „Command Line“ --variations-override-country enthält.'
+        noLaunchAdmin = 'Chrome wurde nicht gestartet: Das Skript läuft mit Administratorrechten, und ein von ihm gestartetes Chrome hätte sie auch. Starten Sie Chrome über eine Verknüpfung.'
+        noBackup      = 'Keine Sicherung in {0}: Das Skript hat hier noch nichts geändert, es gibt nichts wiederherzustellen.'
+        restoreLocal  = 'Local State: Glic-Flags, Oberflächensprache und Land wiederhergestellt'
+        restoreProfile = 'Profil {0}: Sprachen wiederhergestellt'
+        restoreShortcut = 'Verknüpfung wiederhergestellt: {0}'
+        restoreShortcutOk = 'Verknüpfung bereits im ursprünglichen Zustand: {0}'
+        restoreMissing = 'Existiert nicht mehr, übersprungen: {0}'
+        restoreAutostart = 'Autostart-Eintrag wiederhergestellt: {0}'
+        restoreHandler = 'Link-Handler wiederhergestellt: {0}'
+        restoreHandlerDeleted = 'Kopie des Link-Handlers entfernt: {0}'
+        relaunch      = 'PowerShell 7 erkannt: Neustart in Windows PowerShell 5.1...'
+        needWinPS     = 'Dieses Skript benötigt Windows PowerShell 5.1 (powershell.exe, in Windows 10 und 11 enthalten).'
+        done          = 'Fertig. Falls Gemini nicht erscheint, öffnen Sie chrome://version und prüfen Sie, ob „Command Line“ --variations-override-country enthält und chrome://flags/#glic auf Enabled steht.'
+        restoreDone   = 'Wiederherstellung abgeschlossen. Chrome verwendet wieder Ihre Sprachen und Region.'
         doneErrors    = 'Mit Fehlern beendet, siehe Meldungen oben.'
-        undo          = 'Rückgängig machen: siehe Abschnitt „Rückgängig machen“ in der README.'
+        undo          = 'Rückgängig machen: chrome-gemini-unlock.bat -Restore ausführen (siehe Abschnitt „Rückgängig machen“ in der README).'
     }
 }
 $Lang = (Get-UICulture).TwoLetterISOLanguageName
@@ -232,6 +328,75 @@ function Ok([string]$m)   { Write-Host "[ OK ] $m" -ForegroundColor Green;  Writ
 function Note([string]$m) { Write-Host "       $m" -ForegroundColor Gray;   Write-LogLine "       $m" }
 function Warn([string]$m) { Write-Host "[WARN] $m" -ForegroundColor Yellow; Write-LogLine "[WARN] $m" }
 function Fail([string]$m) { Write-Host "[FAIL] $m" -ForegroundColor Red;    Write-LogLine "[FAIL] $m"; $script:HadErrors = $true }
+
+# ---------------------------------------------------------------------------
+# Windows PowerShell 5.1 only: JavaScriptSerializer below exists only in .NET Framework.
+# PowerShell 7 hands the run over to powershell.exe with the same options.
+# ---------------------------------------------------------------------------
+if ($PSVersionTable.PSEdition -ne 'Desktop') {
+    $winPS = if ($env:SystemRoot) { Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe' }
+    if ($winPS -and $PSCommandPath -and (Test-Path -LiteralPath $winPS)) {
+        $relaunch = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+        foreach ($p in $PSBoundParameters.GetEnumerator()) {
+            if ($p.Value -is [switch]) { if ($p.Value) { $relaunch += "-$($p.Key)" } }
+            else { $relaunch += "-$($p.Key)", [string]$p.Value }
+        }
+        Note (T 'relaunch')
+        & $winPS @relaunch
+        exit $LASTEXITCODE
+    }
+    Fail (T 'needWinPS')
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# What the script changes
+# ---------------------------------------------------------------------------
+# The Gemini side panel and where its toolbar button and context menu entry appear
+$BaseFlags = @(
+    'glic@1',
+    'glic-toolbar-height-side-panel@1',
+    'glic-horizontal-tab-toolbar-button@1',
+    'glic-toolbar-button-location@1',
+    'glic-context-menu-below-search@1'
+)
+# Gemini acting on web pages for the user (clicking, typing, autofill, background tabs): -Agent only
+$AgentFlags = @(
+    'glic-actor@1',
+    'enable-browser-actuator-for-glic-experimental-triggering@1',
+    'glic-background-actuation@1',
+    'glic-actor-autofill@1',
+    'glic-actor-cursor@1',
+    'glic-actor-script-tools@1'
+)
+$Flags = if ($Agent) { $BaseFlags + $AgentFlags } else { $BaseFlags }
+# Every flag the script manages: a run without -Agent sets the agent flags back to Default
+$ManagedFlags = @(($BaseFlags + $AgentFlags) | ForEach-Object { $_.Split('@')[0] })
+# Expiry milestones from Chromium's chrome/browser/flag-metadata.json (Chrome 154 and 157 sources).
+# Chrome ignores a flag after its expiry milestone, unless Google extends it in a later version.
+$FlagExpiry = @{
+    'glic'                                                     = 160
+    'glic-toolbar-height-side-panel'                           = 160
+    'glic-horizontal-tab-toolbar-button'                       = 160
+    'glic-toolbar-button-location'                             = 160
+    'glic-context-menu-below-search'                           = 160
+    'glic-actor'                                               = 172
+    'enable-browser-actuator-for-glic-experimental-triggering' = 170
+    'glic-background-actuation'                                = 160
+    'glic-actor-autofill'                                      = 160
+    'glic-actor-cursor'                                        = 160
+    'glic-actor-script-tools'                                  = 170
+}
+$Languages           = 'en-US,en'
+$ProfileLanguageKeys = 'app_locale', 'accept_languages', 'selected_languages'
+$OverrideArgs        = "--variations-override-country=$Country --lang=en-US"
+$ChromeSub           = 'Google\Chrome\Application\chrome.exe'
+$UserData            = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'
+$MySession           = (Get-Process -Id $PID).SessionId
+$RunKey              = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$RunName             = 'HKCU\Software\Microsoft\Windows\CurrentVersion\Run'
+# Only these keys are ever copied, exported or deleted under HKCU\Software\Classes
+$HandlerKeyPattern   = '^HKCU\\Software\\Classes\\Chrome(HTML|PDF)(\.[^\\\s]+)?$'
 
 # ---------------------------------------------------------------------------
 # Files and JSON
@@ -257,9 +422,17 @@ function Read-Json([string]$Path) {
     return $Json.DeserializeObject($text)
 }
 
+# A missing backup reads as an empty object: every setting it would hold was absent
+function Read-JsonOrEmpty([string]$Path) {
+    if (Test-Path -LiteralPath $Path) { return Read-Json $Path }
+    return [System.Collections.Generic.Dictionary[string,object]]::new()
+}
+
 function Write-Json([string]$Path, $Data) {
     $item = Get-Item -LiteralPath $Path
-    if ($item.IsReadOnly) { $item.IsReadOnly = $false }
+    # A read-only file is written anyway and made read-only again afterwards
+    $wasReadOnly = $item.IsReadOnly
+    if ($wasReadOnly) { $item.IsReadOnly = $false }
     $tmp = "$Path.chrome-gemini-unlock.tmp"
     $text = $Json.Serialize($Data)
     $null = $Json.DeserializeObject($text)
@@ -270,6 +443,7 @@ function Write-Json([string]$Path, $Data) {
         Invoke-WithRetry { [System.IO.File]::Replace($tmp, $Path, [NullString]::Value) } | Out-Null
     } finally {
         if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        if ($wasReadOnly) { (Get-Item -LiteralPath $Path).IsReadOnly = $true }
     }
 }
 
@@ -281,6 +455,64 @@ function Get-Section($Dict, [string]$Key) {
     return $Dict[$Key]
 }
 
+# Sets $Target[$Key] to the original value, or removes the key if the original had none
+function Copy-Setting($Target, $Source, [string]$Key) {
+    if ($Source -is [System.Collections.IDictionary] -and $Source.ContainsKey($Key)) { $Target[$Key] = $Source[$Key] }
+    elseif ($Target.ContainsKey($Key)) { $null = $Target.Remove($Key) }
+}
+
+# ---------------------------------------------------------------------------
+# Chrome settings: what a run sets and what -Restore puts back
+# ---------------------------------------------------------------------------
+# Entries of enabled_labs_experiments that belong to flags the script does not manage
+function Get-ForeignFlags($Browser) {
+    foreach ($e in @($Browser['enabled_labs_experiments'])) {
+        if ($null -ne $e -and $ManagedFlags -notcontains ([string]$e).Split('@')[0]) { $e }
+    }
+}
+
+function Set-LocalStateSettings($State) {
+    $browser = Get-Section $State 'browser'
+    # Every state of the managed flags is dropped first, so glic@2 does not fight with glic@1
+    # and a run without -Agent sets the agent flags back to Default
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($e in Get-ForeignFlags $browser) { $list.Add($e) }
+    foreach ($f in $Flags) { $list.Add($f) }
+    $browser['enabled_labs_experiments'] = $list.ToArray()
+    # On Windows the interface language is read from Local State, not from the profile
+    (Get-Section $State 'intl')['app_locale'] = 'en-US'
+    # Covers the experiments that use the permanent country, also when Chrome starts without the switch
+    $State['variations_permanent_overridden_country'] = $Country
+}
+
+# Puts back only what Set-LocalStateSettings changes; everything Chrome saved since then is kept
+function Restore-LocalStateSettings($State, $Original) {
+    $browser = Get-Section $State 'browser'
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($e in Get-ForeignFlags $browser) { $list.Add($e) }
+    if ($Original['browser'] -is [System.Collections.IDictionary]) {
+        foreach ($e in @($Original['browser']['enabled_labs_experiments'])) {
+            if ($null -ne $e -and $ManagedFlags -contains ([string]$e).Split('@')[0]) { $list.Add($e) }
+        }
+    }
+    $browser['enabled_labs_experiments'] = $list.ToArray()
+    Copy-Setting (Get-Section $State 'intl') $Original['intl'] 'app_locale'
+    Copy-Setting $State $Original 'variations_permanent_overridden_country'
+}
+
+function Set-ProfileSettings($Prefs) {
+    $intl = Get-Section $Prefs 'intl'
+    $intl['app_locale']         = 'en-US'
+    $intl['accept_languages']   = $Languages
+    # Chrome rebuilds accept_languages from this list, so it has to change too
+    $intl['selected_languages'] = $Languages
+}
+
+function Restore-ProfileSettings($Prefs, $Original) {
+    $intl = Get-Section $Prefs 'intl'
+    foreach ($k in $ProfileLanguageKeys) { Copy-Setting $intl $Original['intl'] $k }
+}
+
 # ---------------------------------------------------------------------------
 # Backups: the state before the first run, saved once and never overwritten
 # ---------------------------------------------------------------------------
@@ -288,17 +520,32 @@ if (-not $BackupDir) { $BackupDir = Join-Path $env:LOCALAPPDATA 'chrome-gemini-u
 $BackupDir = [System.IO.Path]::GetFullPath($BackupDir).TrimEnd('\')
 $Manifest  = Join-Path $BackupDir 'manifest.txt'
 
+# The elevated copy writes into this folder, which the user can change. A junction or symbolic
+# link planted in it could send an administrator's write anywhere, so writing through one is refused.
+function Assert-NoLink([string]$Path) {
+    $stop = Split-Path -Parent $BackupDir
+    for ($p = $Path; $p; $p = Split-Path -Parent $p) {
+        # GetAttributes looks at the link itself, also when its target does not exist
+        $attributes = 0
+        try { $attributes = [System.IO.File]::GetAttributes($p) } catch { }
+        if ($attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw (T 'unsafePath' $p) }
+        if ($p -eq $stop) { break }
+    }
+}
+
 function Test-Manifest([string]$Text) {
     if (-not (Test-Path -LiteralPath $Manifest)) { return $false }
     return ([System.IO.File]::ReadAllText($Manifest)).Contains($Text)
 }
 
 function Add-ManifestLine([string]$Line) {
+    Assert-NoLink $Manifest
     Add-Content -LiteralPath $Manifest -Value $Line -Encoding UTF8
 }
 
 function Save-Backup([string]$Path, [string]$Name) {
     $dest = Join-Path $BackupDir $Name
+    Assert-NoLink $dest
     if (Test-Path -LiteralPath $dest) { return }
     $parent = Split-Path -Parent $dest
     if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
@@ -313,13 +560,39 @@ function Get-PathTag([string]$Path) {
     return -join ($hash[0..3] | ForEach-Object { $_.ToString('x2') })
 }
 
+# The manifest written by Save-Backup and the registry steps, as objects for -Restore.
+# Lines that do not look like the script's own entries are ignored, so an edited manifest
+# can never make -Restore touch anything the script does not manage.
+function Read-Manifest {
+    if (-not (Test-Path -LiteralPath $Manifest)) { return }
+    foreach ($line in [System.IO.File]::ReadAllLines($Manifest)) {
+        if ($line -match '^\[registry\] created (\S+) ') {
+            if ($Matches[1] -match $HandlerKeyPattern) { [pscustomobject]@{ Kind = 'CreatedKey'; Target = $Matches[0] } }
+        } elseif ($line -match '^\[registry\] (\S+)  (GoogleChromeAutoLaunch\S*) = (.*)$') {
+            if ($Matches[1] -eq $RunName) { [pscustomobject]@{ Kind = 'RunValue'; Name = $Matches[2]; Value = $Matches[3] } }
+        } elseif ($line -match '^(.+?)  ->  (.+)$') {
+            $name = $Matches[1]; $target = $Matches[2]
+            if ($name -match '(^|\\)\.\.(\\|$)') { continue }
+            $kind = $null
+            if ($name -eq 'Local State' -and $target -like '*\Local State') { $kind = 'LocalState' }
+            elseif ($name -like 'profiles\*\Preferences' -and $target -like '*\Preferences') { $kind = 'Profile' }
+            elseif ($name -like 'shortcuts\*.lnk' -and $target -like '*.lnk') { $kind = 'Shortcut' }
+            elseif ($name -like 'registry\handler-*.reg' -and $target -match $HandlerKeyPattern) { $kind = 'RegFile' }
+            if ($kind) { [pscustomobject]@{ Kind = $kind; Target = $target; Backup = (Join-Path $BackupDir $name) } }
+        }
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Command lines
 # ---------------------------------------------------------------------------
-# Each switch is removed together with its own trailing space, so quoted values stay byte for byte
+# A switch is removed together with its trailing spaces; tokens are split on spaces outside
+# quotes, so quoted values stay byte for byte, even when they contain " --lang="
 function Add-OverrideArgs([string]$Arguments) {
-    $rest = $Arguments -replace '(?<!\S)--variations-override-country=\S*\s*', '' -replace '(?<!\S)--lang=\S*\s*', ''
-    $rest = $rest.Trim()
+    $rest = [regex]::Replace($Arguments, '(?:"[^"]*"?|[^\s"])+\s*', {
+            param($m)
+            if ($m.Value -match '^"?--(?:variations-override-country|lang)=') { '' } else { $m.Value }
+        }).Trim()
     if ($rest) { return "$OverrideArgs $rest" }
     return $OverrideArgs
 }
@@ -333,6 +606,21 @@ function Add-OverrideToCommand([string]$Command) {
         return "$exe $(Add-OverrideArgs $rest)"
     }
     return $Command
+}
+
+# reg.exe reports success on stderr; a separate process keeps that text out of PowerShell's error stream
+function Invoke-Reg([string[]]$Arguments) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo 'reg.exe'
+    $psi.Arguments = ($Arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $null = $proc.StandardOutput.ReadToEndAsync()
+    $err = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+    if ($proc.ExitCode -ne 0) { throw "reg $($Arguments[0]): $($err.Trim()) (exit code $($proc.ExitCode))" }
 }
 
 # ---------------------------------------------------------------------------
@@ -349,8 +637,13 @@ $SystemShortcutDirs = @(
     @{ Path = [Environment]::GetFolderPath('CommonStartMenu');        Recurse = $true }
 )
 
+function Get-WShell {
+    if (-not $script:WShell) { $script:WShell = New-Object -ComObject WScript.Shell }
+    return $script:WShell
+}
+
 function Get-ChromeShortcuts($Dirs) {
-    $shell = New-Object -ComObject WScript.Shell
+    $shell = Get-WShell
     $seen = @{}
     foreach ($d in $Dirs) {
         if (-not $d.Path -or -not (Test-Path -LiteralPath $d.Path)) { continue }
@@ -388,10 +681,116 @@ function Update-Shortcuts($Shortcuts) {
     }
 }
 
+function Test-SharedShortcut([string]$Path) {
+    foreach ($d in $SystemShortcutDirs) {
+        if ($d.Path -and $Path.StartsWith($d.Path.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Test-RestorePending($Entry) {
+    if (-not (Test-Path -LiteralPath $Entry.Target) -or -not (Test-Path -LiteralPath $Entry.Backup)) { return $false }
+    $shell = Get-WShell
+    return $shell.CreateShortcut($Entry.Target).Arguments -cne $shell.CreateShortcut($Entry.Backup).Arguments
+}
+
+# A shortcut gets its original arguments back; its icon, pinning and name stay as they are now
+function Restore-Shortcuts($Entries) {
+    $shell = Get-WShell
+    foreach ($e in $Entries) {
+        try {
+            if (-not (Test-Path -LiteralPath $e.Target)) { Note (T 'restoreMissing' $e.Target); continue }
+            if (-not (Test-Path -LiteralPath $e.Backup)) { Warn (T 'restoreMissing' $e.Backup); continue }
+            $link = $shell.CreateShortcut($e.Target)
+            if ($link.TargetPath -notlike "*\$ChromeSub") { Note (T 'restoreMissing' $e.Target); continue }
+            $original = $shell.CreateShortcut($e.Backup).Arguments
+            if ($link.Arguments -ceq $original) { Ok (T 'restoreShortcutOk' $e.Target); continue }
+            $link.Arguments = $original
+            $link.Save()
+            Ok (T 'restoreShortcut' $e.Target)
+            Note $original
+        } catch { Fail "$($e.Target): $($_.Exception.Message)" }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Administrator rights for the shortcuts shared by all users
+# ---------------------------------------------------------------------------
+function Test-IsAdmin {
+    return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function ConvertTo-PSLiteral([string]$Text) { return "'" + $Text.Replace("'", "''") + "'" }
+
+function Get-Sha256Hex([byte[]]$Bytes) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    return -join ($sha.ComputeHash($Bytes) | ForEach-Object { $_.ToString('x2') })
+}
+
+# The command the elevated PowerShell runs: read the copy once, check its hash, run what was checked.
+# The hash travels in the command line, which no other program can change once UAC shows it.
+function New-ElevatedBootstrap([string]$Path, [string]$Hash, [string]$Arguments) {
+    return @"
+`$ErrorActionPreference = 'Stop'
+`$b = [System.IO.File]::ReadAllBytes($(ConvertTo-PSLiteral $Path))
+`$h = -join ([System.Security.Cryptography.SHA256]::Create().ComputeHash(`$b) | ForEach-Object { `$_.ToString('x2') })
+if (`$h -ne '$Hash') { exit 3 }
+`$t = (New-Object System.Text.UTF8Encoding(`$false)).GetString(`$b).TrimStart([char]0xFEFF)
+& ([scriptblock]::Create(`$t)) $Arguments
+exit `$LASTEXITCODE
+"@
+}
+
+# Runs the shared-shortcut step in an elevated copy of this script. The copy sits in a folder the
+# user can write to, so a program could swap it while the UAC prompt is open; the elevated side
+# therefore runs it only if its SHA-256 matches the text this process runs.
+function Invoke-ElevatedShortcuts {
+    $log = Join-Path $BackupDir 'elevated.log'
+    Assert-NoLink $log
+    if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
+    $text = $ScriptText
+    if (-not $text) { $text = [System.IO.File]::ReadAllText($PSCommandPath) }
+    $bytes = $Utf8.GetBytes($text)
+    # A local copy: an elevated process does not see mapped network or SUBST drives
+    $copy = Join-Path $BackupDir 'elevated.ps1'
+    Assert-NoLink $copy
+    [System.IO.File]::WriteAllBytes($copy, $bytes)
+    $arguments = "-SystemShortcutsOnly -Country $Country -BackupDir $(ConvertTo-PSLiteral $BackupDir) -LogFile $(ConvertTo-PSLiteral $log)"
+    if ($Restore) { $arguments += ' -Restore' }
+    $bootstrap = New-ElevatedBootstrap $copy (Get-Sha256Hex $bytes) $arguments
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($bootstrap))
+    $proc = $null
+    try {
+        $proc = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -Wait -PassThru `
+            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
+    } catch { Warn (T 'adminDeclined') }
+    Remove-Item -LiteralPath $copy -Force -ErrorAction SilentlyContinue
+    if (-not $proc) { return }
+    $hasLog = (Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 0
+    if ($hasLog) {
+        foreach ($line in Get-Content -LiteralPath $log -Encoding UTF8) {
+            $color = if ($line.StartsWith('[FAIL]')) { 'Red' } elseif ($line.StartsWith('[ OK ]')) { 'Green' } elseif ($line.StartsWith('[WARN]')) { 'Yellow' } else { 'Gray' }
+            Write-Host $line -ForegroundColor $color
+        }
+    }
+    if ($proc.ExitCode -eq 3) { Fail (T 'adminTampered' $copy) }
+    elseif ($proc.ExitCode -ne 0) {
+        if ($hasLog) { $script:HadErrors = $true } else { Fail (T 'adminNoRun' $proc.ExitCode) }
+    }
+}
+
 # Elevated copy started by the main run: shared shortcuts only
 if ($SystemShortcutsOnly) {
-    try { Update-Shortcuts @(Get-ChromeShortcuts $SystemShortcutDirs) }
-    catch { Fail $_.Exception.Message }
+    # Nothing is logged through a planted link; the main run then reports the exit code
+    try { Assert-NoLink $LogFile } catch { exit 4 }
+    try {
+        if ($Restore) {
+            Restore-Shortcuts @(Read-Manifest | Where-Object { $_.Kind -eq 'Shortcut' -and (Test-SharedShortcut $_.Target) })
+        } else {
+            Update-Shortcuts @(Get-ChromeShortcuts $SystemShortcutDirs)
+        }
+    } catch { Fail $_.Exception.Message }
     if ($script:HadErrors) { exit 2 }
     exit 0
 }
@@ -475,10 +874,28 @@ $localState = Join-Path $UserData 'Local State'
 if (-not (Test-Path -LiteralPath $localState)) { Fail (T 'neverStarted' $localState); exit 1 }
 Note (T 'userData' $UserData)
 
+if ($Restore) {
+    if (-not (Test-Path -LiteralPath $Manifest)) { Fail (T 'noBackup' $BackupDir); exit 1 }
+} else {
+    $chromeMajor = 0
+    if ([string]$installs[0].Version -match '^(\d+)\.') { $chromeMajor = [int]$Matches[1] }
+    foreach ($f in $Flags) {
+        $name = $f.Split('@')[0]
+        if ($chromeMajor -and $FlagExpiry[$name] -lt $chromeMajor) { Warn (T 'flagExpiry' $name $FlagExpiry[$name] $chromeMajor) }
+    }
+}
+
+# ---- 1. Close Chrome: ask first, then ask every window to close, then end what is left
+if (-not $Force -and @(Get-ChromeProcesses).Count) {
+    Warn (T 'confirmClose')
+    $answer = $null
+    try { $answer = Read-Host (T 'confirmPrompt') } catch { Fail (T 'needForce'); exit 1 }
+    if ([string]$answer -notmatch '^\s*(y|yes|д|да|o|oui|j|ja)\s*$') { Note (T 'cancelled'); exit 1 }
+}
+
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
 Note (T 'backup' $BackupDir)
 
-# ---- 1. Close Chrome: ask every window to close, then end what is left
 Note (T 'closing')
 $deadline = (Get-Date).AddSeconds(10)
 while ((Get-Date) -lt $deadline) {
@@ -499,174 +916,198 @@ if (Get-ChromeProcesses) { Fail (T 'stillRunning'); exit 1 }
 Ok (T 'closed')
 if ($leftovers.Count) { Note (T 'restoreHint') }
 
-# ---- 2. Local State: flags, interface language, stored country
-$state = $null
-try {
-    Save-Backup $localState 'Local State'
-    $state = Read-Json $localState
-    $browser = Get-Section $state 'browser'
-    $flagNames = $Flags | ForEach-Object { $_.Split('@')[0] }
-    $list = New-Object System.Collections.Generic.List[object]
-    if ($browser['enabled_labs_experiments']) {
-        foreach ($e in $browser['enabled_labs_experiments']) {
-            # Drop other states of the same flags so glic@2 does not fight with glic@1
-            if ($flagNames -notcontains ([string]$e).Split('@')[0]) { $list.Add($e) }
-        }
-    }
-    foreach ($f in $Flags) { $list.Add($f) }
-    $browser['enabled_labs_experiments'] = $list.ToArray()
-    # On Windows the interface language is read from Local State, not from the profile
-    (Get-Section $state 'intl')['app_locale'] = 'en-US'
-    # Covers the experiments that use the permanent country, also when Chrome starts without the switch
-    $state['variations_permanent_overridden_country'] = $Country
-    Write-Json $localState $state
-    Ok (T 'localState' $Flags.Count $Country.ToUpperInvariant())
-} catch { Fail "Local State: $($_.Exception.Message)" }
+if ($Restore) {
+    $entries = @(Read-Manifest)
 
-# ---- 3. Profiles: en-US
-$profiles = @()
-if ($state -and $state['profile'] -is [System.Collections.IDictionary] -and
-    $state['profile']['info_cache'] -is [System.Collections.IDictionary]) {
-    foreach ($dir in $state['profile']['info_cache'].Keys) {
-        $profiles += [pscustomobject]@{ Dir = $dir; Name = [string]$state['profile']['info_cache'][$dir]['name'] }
-    }
-}
-if (-not $profiles) { $profiles = @([pscustomobject]@{ Dir = 'Default'; Name = '' }) }
-
-foreach ($p in $profiles) {
-    $label = if ($p.Name) { "`"$($p.Dir)`" ($($p.Name))" } else { "`"$($p.Dir)`"" }
-    $prefs = Join-Path $UserData "$($p.Dir)\Preferences"
+    # ---- 2. Local State: the managed flags, interface language and stored country go back
     try {
-        if (-not (Test-Path -LiteralPath $prefs)) { Note (T 'profileSkip' $label); continue }
-        Save-Backup $prefs "profiles\$($p.Dir)\Preferences"
-        $data = Read-Json $prefs
-        $intl = Get-Section $data 'intl'
-        $intl['app_locale']         = 'en-US'
-        $intl['accept_languages']   = $Languages
-        # Chrome rebuilds accept_languages from this list, so it has to change too
-        $intl['selected_languages'] = $Languages
-        Write-Json $prefs $data
-        Ok (T 'profile' $label $Languages)
-    } catch { Fail "$label : $($_.Exception.Message)" }
+        $state = Read-Json $localState
+        Restore-LocalStateSettings $state (Read-JsonOrEmpty (Join-Path $BackupDir 'Local State'))
+        Write-Json $localState $state
+        Ok (T 'restoreLocal')
+    } catch { Fail "Local State: $($_.Exception.Message)" }
+
+    # ---- 3. Profiles: languages go back
+    foreach ($e in @($entries | Where-Object { $_.Kind -eq 'Profile' })) {
+        $label = '"' + (Split-Path -Leaf (Split-Path -Parent $e.Target)) + '"'
+        try {
+            if (-not (Test-Path -LiteralPath $e.Target)) { Note (T 'restoreMissing' $e.Target); continue }
+            $data = Read-Json $e.Target
+            Restore-ProfileSettings $data (Read-JsonOrEmpty $e.Backup)
+            Write-Json $e.Target $data
+            Ok (T 'restoreProfile' $label)
+        } catch { Fail "$label : $($_.Exception.Message)" }
+    }
+
+    # ---- 4. Shortcuts of the current user
+    $shortcutEntries = @($entries | Where-Object { $_.Kind -eq 'Shortcut' })
+    try { Restore-Shortcuts @($shortcutEntries | Where-Object { -not (Test-SharedShortcut $_.Target) }) }
+    catch { Fail $_.Exception.Message }
+
+    # ---- 5. Shortcuts shared by all users (administrator rights)
+    try {
+        $shared  = @($shortcutEntries | Where-Object { Test-SharedShortcut $_.Target })
+        $pending = @($shared | Where-Object { Test-RestorePending $_ })
+        if ($pending.Count -eq 0) { Restore-Shortcuts $shared }
+        elseif ($NoAdmin) { Warn (T 'adminSkip') }
+        elseif (Test-IsAdmin) { Restore-Shortcuts $shared }
+        else { Warn (T 'adminAsk'); Invoke-ElevatedShortcuts }
+    } catch { Fail $_.Exception.Message }
+
+    # ---- 6. Autostart entry: the original command goes back, if Chrome still has the entry
+    try {
+        $run = Get-Item -LiteralPath $RunKey -ErrorAction SilentlyContinue
+        foreach ($e in @($entries | Where-Object { $_.Kind -eq 'RunValue' })) {
+            if ($run -and $run.GetValueNames() -contains $e.Name) {
+                Set-ItemProperty -LiteralPath $RunKey -Name $e.Name -Value $e.Value
+                Ok (T 'restoreAutostart' $e.Name)
+            } else { Note (T 'restoreMissing' "$RunName  $($e.Name)") }
+        }
+    } catch { Fail (T 'autostart' $_.Exception.Message) }
+
+    # ---- 7. Link handlers: the per-user copy goes away, an exported original comes back
+    try {
+        foreach ($e in @($entries | Where-Object { $_.Kind -eq 'CreatedKey' })) {
+            $key = 'HKCU:\' + $e.Target.Substring(5)
+            if (Test-Path -LiteralPath $key) {
+                Remove-Item -LiteralPath $key -Recurse -Force
+                Ok (T 'restoreHandlerDeleted' $e.Target)
+            }
+        }
+        foreach ($e in @($entries | Where-Object { $_.Kind -eq 'RegFile' })) {
+            if (-not (Test-Path -LiteralPath $e.Backup)) { Warn (T 'restoreMissing' $e.Backup); continue }
+            # The export holds the whole key: removing it first also drops subkeys the script added
+            $key = 'HKCU:\' + $e.Target.Substring(5)
+            if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Recurse -Force }
+            Invoke-Reg 'import', $e.Backup
+            Ok (T 'restoreHandler' $e.Target)
+        }
+    } catch { Fail (T 'handler' $_.Exception.Message) }
+} else {
+    # ---- 2. Local State: flags, interface language, stored country
+    $state = $null
+    try {
+        Save-Backup $localState 'Local State'
+        $state = Read-Json $localState
+        Set-LocalStateSettings $state
+        Write-Json $localState $state
+        Ok (T 'localState' $Flags.Count $Country.ToUpperInvariant())
+        if ($Agent) { Warn (T 'agentOn') } else { Note (T 'agentOff') }
+    } catch { Fail "Local State: $($_.Exception.Message)" }
+
+    # ---- 3. Profiles: en-US
+    $profiles = @()
+    if ($state -and $state['profile'] -is [System.Collections.IDictionary] -and
+        $state['profile']['info_cache'] -is [System.Collections.IDictionary]) {
+        foreach ($dir in $state['profile']['info_cache'].Keys) {
+            $info = $state['profile']['info_cache'][$dir]
+            $name = if ($info -is [System.Collections.IDictionary]) { [string]$info['name'] } else { '' }
+            $profiles += [pscustomobject]@{ Dir = $dir; Name = $name }
+        }
+    }
+    if (-not $profiles) { $profiles = @([pscustomobject]@{ Dir = 'Default'; Name = '' }) }
+
+    foreach ($p in $profiles) {
+        $label = if ($p.Name) { "`"$($p.Dir)`" ($($p.Name))" } else { "`"$($p.Dir)`"" }
+        $prefs = Join-Path $UserData "$($p.Dir)\Preferences"
+        try {
+            if (-not (Test-Path -LiteralPath $prefs)) { Note (T 'profileSkip' $label); continue }
+            Save-Backup $prefs "profiles\$($p.Dir)\Preferences"
+            $data = Read-Json $prefs
+            Set-ProfileSettings $data
+            Write-Json $prefs $data
+            Ok (T 'profile' $label $Languages)
+        } catch { Fail "$label : $($_.Exception.Message)" }
+    }
+
+    # ---- 4. Shortcuts of the current user
+    try { Update-Shortcuts @(Get-ChromeShortcuts $UserShortcutDirs) }
+    catch { Fail $_.Exception.Message }
+
+    # ---- 5. Shortcuts shared by all users (administrator rights)
+    try {
+        $shared  = @(Get-ChromeShortcuts $SystemShortcutDirs)
+        $pending = @($shared | Where-Object { Test-ShortcutPending $_ })
+        # -NoAdmin wins even when the script already runs elevated
+        if ($pending.Count -eq 0) { Update-Shortcuts $shared }
+        elseif ($NoAdmin) { Warn (T 'adminSkip') }
+        elseif (Test-IsAdmin) { Update-Shortcuts $shared }
+        else { Warn (T 'adminAsk'); Invoke-ElevatedShortcuts }
+    } catch { Fail $_.Exception.Message }
+
+    # ---- 6. Autostart entry (Chrome started in the background at Windows logon)
+    try {
+        $run = Get-Item -LiteralPath $RunKey -ErrorAction SilentlyContinue
+        if ($run) {
+            foreach ($name in $run.GetValueNames()) {
+                if ($name -notlike 'GoogleChromeAutoLaunch*') { continue }
+                $value = [string]$run.GetValue($name)
+                if ($value -notlike "*\$ChromeSub*") { continue }
+                $new = Add-OverrideToCommand $value
+                if ($new -ne $value) {
+                    $entry = "[registry] $RunName  $name = "
+                    if (-not (Test-Manifest $entry)) { Add-ManifestLine "$entry$value" }
+                    Set-ItemProperty -LiteralPath $RunKey -Name $name -Value $new
+                }
+                Ok (T 'autostart' $name)
+                Note $new
+            }
+        }
+    } catch { Fail (T 'autostart' $_.Exception.Message) }
+
+    # ---- 7. Link handlers (a link clicked in another program while Chrome is closed)
+    try {
+        $progIds = @()
+        foreach ($hive in 'HKCU', 'HKLM') {
+            $progIds += @(Get-ChildItem -Path "${hive}:\Software\Classes" -Name -ErrorAction SilentlyContinue |
+                          Where-Object { "HKCU\Software\Classes\$_" -match $HandlerKeyPattern })
+        }
+        foreach ($id in ($progIds | Select-Object -Unique)) {
+            try {
+                $userKey    = "HKCU:\Software\Classes\$id"
+                $userCmd    = "$userKey\shell\open\command"
+                $machineCmd = "HKLM:\Software\Classes\$id\shell\open\command"
+                $source = if (Test-Path -LiteralPath $userCmd) { $userCmd } elseif (Test-Path -LiteralPath $machineCmd) { $machineCmd } else { $null }
+                if (-not $source) { continue }
+                $command = [string](Get-Item -LiteralPath $source).GetValue('')
+                if ($command -notlike "*\$ChromeSub*") { continue }
+                $new = Add-OverrideToCommand $command
+                if ($new -eq $command) { Ok (T 'handlerOk' $id); continue }
+                $created = "[registry] created HKCU\Software\Classes\$id "
+                if (Test-Path -LiteralPath $userKey) {
+                    # A key that existed before the first run (per-user Chrome install) is exported once
+                    $regName = "registry\handler-$id.reg"
+                    $reg = Join-Path $BackupDir $regName
+                    Assert-NoLink $reg
+                    if (-not (Test-Manifest $created) -and -not (Test-Path -LiteralPath $reg)) {
+                        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reg) | Out-Null
+                        Invoke-Reg 'export', "HKCU\Software\Classes\$id", $reg, '/y'
+                        Add-ManifestLine "$regName  ->  HKCU\Software\Classes\$id"
+                    }
+                } else {
+                    # A per-user copy of the machine-wide handler takes precedence over it
+                    Invoke-Reg 'copy', "HKLM\Software\Classes\$id", "HKCU\Software\Classes\$id", '/s', '/f'
+                    if (-not (Test-Manifest $created)) { Add-ManifestLine "$created(delete it to undo)" }
+                }
+                if (-not (Test-Path -LiteralPath $userCmd)) { New-Item -Path $userCmd -Force | Out-Null }
+                Set-Item -LiteralPath $userCmd -Value $new
+                Ok (T 'handler' $id)
+                Note $new
+            } catch { Fail "${id}: $($_.Exception.Message)" }
+        }
+    } catch { Fail (T 'handler' $_.Exception.Message) }
 }
-
-# ---- 4. Shortcuts of the current user
-try { Update-Shortcuts @(Get-ChromeShortcuts $UserShortcutDirs) }
-catch { Fail $_.Exception.Message }
-
-# ---- 5. Shortcuts shared by all users (administrator rights)
-try {
-    $shared  = @(Get-ChromeShortcuts $SystemShortcutDirs)
-    $pending = @($shared | Where-Object { Test-ShortcutPending $_ })
-    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-                   [Security.Principal.WindowsBuiltInRole]::Administrator)
-    # -NoAdmin wins even when the script already runs elevated
-    if ($pending.Count -eq 0) {
-        Update-Shortcuts $shared
-    } elseif ($NoAdmin) {
-        Warn (T 'adminSkip')
-    } elseif ($isAdmin) {
-        Update-Shortcuts $shared
-    } else {
-        Warn (T 'adminAsk')
-        $log = Join-Path $BackupDir 'elevated.log'
-        if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
-        # A local copy: an elevated process does not see mapped network or SUBST drives
-        $elevatedScript = Join-Path $BackupDir 'elevated.ps1'
-        Copy-Item -LiteralPath $PSCommandPath -Destination $elevatedScript -Force
-        $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$elevatedScript`" -SystemShortcutsOnly " +
-                   "-Country $Country -BackupDir `"$BackupDir`" -LogFile `"$log`""
-        $proc = $null
-        try {
-            $proc = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
-        } catch { Warn (T 'adminDeclined') }
-        Remove-Item -LiteralPath $elevatedScript -Force -ErrorAction SilentlyContinue
-        if ($proc) {
-            $hasLog = (Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 0
-            if ($hasLog) {
-                foreach ($line in Get-Content -LiteralPath $log -Encoding UTF8) {
-                    $color = if ($line.StartsWith('[FAIL]')) { 'Red' } elseif ($line.StartsWith('[ OK ]')) { 'Green' } elseif ($line.StartsWith('[WARN]')) { 'Yellow' } else { 'Gray' }
-                    Write-Host $line -ForegroundColor $color
-                }
-            }
-            if ($proc.ExitCode -ne 0) {
-                if ($hasLog) { $script:HadErrors = $true } else { Fail (T 'adminNoRun' $proc.ExitCode) }
-            }
-        }
-    }
-} catch { Fail $_.Exception.Message }
-
-# ---- 6. Autostart entry (Chrome started in the background at Windows logon)
-$runKey  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$runName = 'HKCU\Software\Microsoft\Windows\CurrentVersion\Run'
-try {
-    $run = Get-Item -LiteralPath $runKey -ErrorAction SilentlyContinue
-    if ($run) {
-        foreach ($name in $run.GetValueNames()) {
-            if ($name -notlike 'GoogleChromeAutoLaunch*') { continue }
-            $value = [string]$run.GetValue($name)
-            if ($value -notlike "*\$ChromeSub*") { continue }
-            $new = Add-OverrideToCommand $value
-            if ($new -ne $value) {
-                $entry = "[registry] $runName  $name = "
-                if (-not (Test-Manifest $entry)) { Add-ManifestLine "$entry$value" }
-                Set-ItemProperty -LiteralPath $runKey -Name $name -Value $new
-            }
-            Ok (T 'autostart' $name)
-            Note $new
-        }
-    }
-} catch { Fail "Autostart: $($_.Exception.Message)" }
-
-# ---- 7. Link handlers (a link clicked in another program while Chrome is closed)
-try {
-    $progIds = @()
-    foreach ($hive in 'HKCU', 'HKLM') {
-        $progIds += @(Get-ChildItem -Path "${hive}:\Software\Classes" -Name -ErrorAction SilentlyContinue |
-                      Where-Object { $_ -match '^Chrome(HTML|PDF)(\..+)?$' })
-    }
-    foreach ($id in ($progIds | Select-Object -Unique)) {
-        try {
-            $userKey    = "HKCU:\Software\Classes\$id"
-            $userCmd    = "$userKey\shell\open\command"
-            $machineCmd = "HKLM:\Software\Classes\$id\shell\open\command"
-            $source = if (Test-Path -LiteralPath $userCmd) { $userCmd } elseif (Test-Path -LiteralPath $machineCmd) { $machineCmd } else { $null }
-            if (-not $source) { continue }
-            $command = [string](Get-Item -LiteralPath $source).GetValue('')
-            if ($command -notlike "*\$ChromeSub*") { continue }
-            $new = Add-OverrideToCommand $command
-            if ($new -eq $command) { Ok (T 'handlerOk' $id); continue }
-            $created = "[registry] created HKCU\Software\Classes\$id "
-            if (Test-Path -LiteralPath $userKey) {
-                # A key that existed before the first run (per-user Chrome install) is exported once
-                $regName = "registry\handler-$id.reg"
-                $reg = Join-Path $BackupDir $regName
-                if (-not (Test-Manifest $created) -and -not (Test-Path -LiteralPath $reg)) {
-                    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reg) | Out-Null
-                    & reg.exe export "HKCU\Software\Classes\$id" $reg /y | Out-Null
-                    if ($LASTEXITCODE -ne 0) { throw "reg export exit code $LASTEXITCODE" }
-                    Add-ManifestLine "$regName  ->  HKCU\Software\Classes\$id"
-                }
-            } else {
-                # A per-user copy of the machine-wide handler takes precedence over it
-                & reg.exe copy "HKLM\Software\Classes\$id" "HKCU\Software\Classes\$id" /s /f | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "reg copy exit code $LASTEXITCODE" }
-                if (-not (Test-Manifest $created)) { Add-ManifestLine "$created(delete it to undo)" }
-            }
-            if (-not (Test-Path -LiteralPath $userCmd)) { New-Item -Path $userCmd -Force | Out-Null }
-            Set-Item -LiteralPath $userCmd -Value $new
-            Ok (T 'handler' $id)
-            Note $new
-        } catch { Fail "${id}: $($_.Exception.Message)" }
-    }
-} catch { Fail "Link handlers: $($_.Exception.Message)" }
 
 # ---- 8. Start Chrome and check its command line
 if ($NoLaunch) {
     Note (T 'noLaunch')
+} elseif (Test-IsAdmin) {
+    # A Chrome started from an elevated script would run with administrator rights too
+    Warn (T 'noLaunchAdmin')
 } else {
     try {
-        Start-Process -FilePath $chromeExe -ArgumentList $OverrideArgs.Split(' ')
+        if ($Restore) { Start-Process -FilePath $chromeExe }
+        else { Start-Process -FilePath $chromeExe -ArgumentList $OverrideArgs.Split(' ') }
         $main = $null
         $deadline = (Get-Date).AddSeconds(15)
         while (-not $main -and (Get-Date) -lt $deadline) {
@@ -677,6 +1118,8 @@ if ($NoLaunch) {
         }
         if (-not $main) {
             Fail (T 'startTimeout')
+        } elseif ($Restore) {
+            Ok (T 'startedPlain' $main.ProcessId)
         } elseif ($main.CommandLine -like "*--variations-override-country=$Country*") {
             Ok (T 'started' $OverrideArgs $main.ProcessId)
         } else {
@@ -688,10 +1131,12 @@ if ($NoLaunch) {
 Write-Host ''
 if ($script:HadErrors) {
     Write-Host (T 'doneErrors') -ForegroundColor Red
+} elseif ($Restore) {
+    Write-Host (T 'restoreDone') -ForegroundColor Cyan
 } else {
     Write-Host (T 'done') -ForegroundColor Cyan
 }
 Note (T 'backup' $BackupDir)
-Note (T 'undo')
+if (-not $Restore) { Note (T 'undo') }
 if ($script:HadErrors) { exit 2 }
 exit 0
