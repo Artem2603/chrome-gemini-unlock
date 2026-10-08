@@ -128,7 +128,7 @@ Alles andere, was Chrome seit dem ersten Lauf gespeichert hat, etwa andere Einst
 | `chrome-gemini-unlock.ps1` | Das eigentliche Skript. Meldungen auf Englisch, Russisch, Französisch und Deutsch, je nach Windows-Sprache. |
 | `tests/` | Unit-Tests, eine Prüfung der Flags in einem echten Chrome und ein End-to-End-Test unter Windows. |
 | `.github/workflows/test.yml` | Führt die Tests auf GitHub Actions aus. |
-| `.github/workflows/release.yml` | Führt bei einem Tag wie `v1.2.3` alle Tests aus und veröffentlicht das Release, wenn sie bestehen. |
+| `.github/workflows/release.yml` | Führt bei einem Tag wie `v1.2.3` oder bei manuellem Start (Actions → Release → Run workflow, Version `v1.2.3`) alle Tests aus und veröffentlicht das Release, wenn sie bestehen. |
 | `tools/build-release.sh` | Baut ein Release: das ZIP, seine SHA-256 und die Versionshinweise. |
 | `CHANGELOG.md` | Was sich in jeder Version geändert hat. |
 

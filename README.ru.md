@@ -128,7 +128,7 @@ chrome-gemini-unlock.bat -Restore
 | `chrome-gemini-unlock.ps1` | Сам скрипт. Сообщения на английском, русском, французском и немецком, язык выбирается по языку Windows. |
 | `tests/` | Модульные тесты, проверка флагов в настоящем Chrome и сквозной тест на Windows. |
 | `.github/workflows/test.yml` | Запускает тесты в GitHub Actions. |
-| `.github/workflows/release.yml` | По тегу вида `v1.2.3` запускает все тесты и, если они прошли, публикует релиз. |
+| `.github/workflows/release.yml` | По тегу вида `v1.2.3` или при ручном запуске (Actions → Release → Run workflow, версия `v1.2.3`) запускает все тесты и, если они прошли, публикует релиз. |
 | `tools/build-release.sh` | Собирает релиз: ZIP, его SHA-256 и заметки к выпуску. |
 | `CHANGELOG.md` | Что изменилось в каждой версии. |
 

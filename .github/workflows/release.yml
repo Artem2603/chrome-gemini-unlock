@@ -1,10 +1,17 @@
 name: Release
 
-# Pushing a tag like v1.2.3 publishes a release, but only after every test passes on that commit:
-#   git tag v1.2.3 && git push origin v1.2.3
+# Publishes a release, but only after every test passes on that commit. Two ways to start it:
+#   - push a tag:  git tag v1.2.3 && git push origin v1.2.3
+#   - by hand on main: Actions -> Release -> Run workflow, version v1.2.3 (the tag is created then)
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, like v1.2.3. Its section must exist in CHANGELOG.md.'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,17 +28,32 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    env:
+      # The input goes through an environment variable, never straight into a script
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
+      - name: Check the version of a run started by hand
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "The version must look like v1.2.3, got '$TAG'"; exit 1; }
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "Run it on main, not $GITHUB_REF"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "Tag $TAG already exists"; exit 1
+          fi
       - name: Build the ZIP, its SHA-256 and the release notes
-        run: bash tools/build-release.sh "$GITHUB_REF_NAME" dist
+        run: bash tools/build-release.sh "$TAG" dist "$GITHUB_SHA"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/chrome-gemini-unlock-$GITHUB_REF_NAME.zip" \
-            "dist/chrome-gemini-unlock-$GITHUB_REF_NAME.zip.sha256" \
-            --title "Chrome Gemini Unlock $GITHUB_REF_NAME" \
+          # A pushed tag must already exist; a run started by hand creates it on the tested commit
+          verify=()
+          if [ "$GITHUB_EVENT_NAME" = push ]; then verify=(--verify-tag); fi
+          gh release create "$TAG" \
+            "dist/chrome-gemini-unlock-$TAG.zip" \
+            "dist/chrome-gemini-unlock-$TAG.zip.sha256" \
+            --title "Chrome Gemini Unlock $TAG" \
             --notes-file dist/notes.md \
-            --verify-tag
+            --target "$GITHUB_SHA" \
+            "${verify[@]}"

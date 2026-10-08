@@ -128,7 +128,7 @@ Tout ce que Chrome a enregistré d'autre depuis la première exécution, par exe
 | `chrome-gemini-unlock.ps1` | Le script. Messages en anglais, russe, français et allemand, choisis selon la langue de Windows. |
 | `tests/` | Tests unitaires, vérification des flags dans un vrai Chrome et test de bout en bout sous Windows. |
 | `.github/workflows/test.yml` | Exécute les tests sur GitHub Actions. |
-| `.github/workflows/release.yml` | Pour un tag comme `v1.2.3`, exécute tous les tests et, s'ils réussissent, publie la version. |
+| `.github/workflows/release.yml` | Pour un tag comme `v1.2.3`, ou lancé à la main (Actions → Release → Run workflow, version `v1.2.3`), exécute tous les tests et, s'ils réussissent, publie la version. |
 | `tools/build-release.sh` | Construit une version : le ZIP, son SHA-256 et les notes de version. |
 | `CHANGELOG.md` | Ce qui a changé dans chaque version. |
 
