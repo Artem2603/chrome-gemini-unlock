@@ -84,7 +84,7 @@ $Messages = @{
         userData      = 'Profile folder: {0}'
         chromeMissing = 'Google Chrome is not installed: nothing found in the registry, among running programs or in the standard folders. Nothing was changed.'
         neverStarted  = 'Chrome has not been started in this Windows account yet ({0} is missing). Start Chrome once, close it and run the script again. Nothing was changed.'
-        flagExpiry    = 'Flag {0} was due to expire after Chrome {1}, this is Chrome {2}: Chrome may ignore it. Check chrome://flags/#{0}.'
+        flagExpiry    = 'Flag {0} expired after Chrome {1}, and this is Chrome {2}: Chrome ignores it. While chrome://flags/#temporary-unexpire-flags-m{1} exists, enabling it brings the flag back.'
         confirmClose  = 'Google Chrome is running and will be closed. Downloads, calls and unsent form input in Chrome will be interrupted.'
         confirmPrompt = 'Close Chrome now? [Y/N]'
         cancelled     = 'Cancelled. Nothing was changed.'
@@ -108,6 +108,7 @@ $Messages = @{
         adminSkip     = 'Shared shortcuts skipped (-NoAdmin).'
         unsafePath    = 'The backup folder contains a junction or symbolic link, nothing is written through it: {0}'
         autostart     = 'Autostart entry: {0}'
+        autostartOk   = 'Autostart entry already set up: {0}'
         handler       = 'Link handler: {0}'
         handlerOk     = 'Link handler already set up: {0}'
         started       = 'Chrome started with {0} (PID {1})'
@@ -143,7 +144,7 @@ $Messages = @{
         userData      = 'Папка профилей: {0}'
         chromeMissing = 'Google Chrome не установлен: его нет ни в реестре, ни среди запущенных программ, ни в стандартных папках. Ничего не изменено.'
         neverStarted  = 'Chrome ещё ни разу не запускался под этой учётной записью Windows (нет {0}). Запустите Chrome один раз, закройте его и запустите скрипт снова. Ничего не изменено.'
-        flagExpiry    = 'Срок флага {0} истекал после Chrome {1}, а установлен Chrome {2}: Chrome может его игнорировать. Проверьте chrome://flags/#{0}.'
+        flagExpiry    = 'Срок флага {0} истёк после Chrome {1}, а установлен Chrome {2}: Chrome его игнорирует. Пока в chrome://flags есть #temporary-unexpire-flags-m{1}, его включение возвращает флаг.'
         confirmClose  = 'Google Chrome запущен и будет закрыт. Загрузки, звонки и неотправленные формы в Chrome будут прерваны.'
         confirmPrompt = 'Закрыть Chrome сейчас? [Y/N]'
         cancelled     = 'Отменено. Ничего не изменено.'
@@ -167,6 +168,7 @@ $Messages = @{
         adminSkip     = 'Общие ярлыки пропущены (-NoAdmin).'
         unsafePath    = 'В папке резервных копий есть точка соединения или символическая ссылка, запись через неё не выполняется: {0}'
         autostart     = 'Автозагрузка: {0}'
+        autostartOk   = 'Автозагрузка уже настроена: {0}'
         handler       = 'Обработчик ссылок: {0}'
         handlerOk     = 'Обработчик ссылок уже настроен: {0}'
         started       = 'Chrome запущен с {0} (PID {1})'
@@ -202,7 +204,7 @@ $Messages = @{
         userData      = 'Dossier des profils : {0}'
         chromeMissing = 'Google Chrome n''est pas installé : rien trouvé dans le registre, parmi les programmes en cours ni dans les dossiers standard. Rien n''a été modifié.'
         neverStarted  = 'Chrome n''a encore jamais été démarré sur ce compte Windows ({0} est absent). Démarrez Chrome une fois, fermez-le et relancez le script. Rien n''a été modifié.'
-        flagExpiry    = 'Le flag {0} devait expirer après Chrome {1}, la version installée est Chrome {2} : Chrome peut l''ignorer. Vérifiez chrome://flags/#{0}.'
+        flagExpiry    = 'Le flag {0} a expiré après Chrome {1} et la version installée est Chrome {2} : Chrome l''ignore. Tant que chrome://flags/#temporary-unexpire-flags-m{1} existe, l''activer rétablit le flag.'
         confirmClose  = 'Google Chrome est en cours d''exécution et va être fermé. Les téléchargements, appels et formulaires non envoyés dans Chrome seront interrompus.'
         confirmPrompt = 'Fermer Chrome maintenant ? [O/N]'
         cancelled     = 'Annulé. Rien n''a été modifié.'
@@ -226,6 +228,7 @@ $Messages = @{
         adminSkip     = 'Raccourcis communs ignorés (-NoAdmin).'
         unsafePath    = 'Le dossier de sauvegarde contient une jonction ou un lien symbolique, rien n''est écrit à travers : {0}'
         autostart     = 'Démarrage automatique : {0}'
+        autostartOk   = 'Démarrage automatique déjà configuré : {0}'
         handler       = 'Gestionnaire de liens : {0}'
         handlerOk     = 'Gestionnaire de liens déjà configuré : {0}'
         started       = 'Chrome démarré avec {0} (PID {1})'
@@ -261,7 +264,7 @@ $Messages = @{
         userData      = 'Profilordner: {0}'
         chromeMissing = 'Google Chrome ist nicht installiert: weder in der Registrierung noch unter laufenden Programmen oder in den Standardordnern gefunden. Es wurde nichts geändert.'
         neverStarted  = 'Chrome wurde in diesem Windows-Konto noch nie gestartet ({0} fehlt). Starten Sie Chrome einmal, schließen Sie es und führen Sie das Skript erneut aus. Es wurde nichts geändert.'
-        flagExpiry    = 'Flag {0} sollte nach Chrome {1} auslaufen, installiert ist Chrome {2}: Chrome ignoriert es eventuell. Prüfen Sie chrome://flags/#{0}.'
+        flagExpiry    = 'Flag {0} ist nach Chrome {1} abgelaufen, installiert ist Chrome {2}: Chrome ignoriert es. Solange es chrome://flags/#temporary-unexpire-flags-m{1} gibt, holt dessen Aktivierung das Flag zurück.'
         confirmClose  = 'Google Chrome läuft und wird geschlossen. Downloads, Anrufe und nicht abgeschickte Formulareingaben in Chrome werden unterbrochen.'
         confirmPrompt = 'Chrome jetzt schließen? [J/N]'
         cancelled     = 'Abgebrochen. Es wurde nichts geändert.'
@@ -285,6 +288,7 @@ $Messages = @{
         adminSkip     = 'Gemeinsame Verknüpfungen übersprungen (-NoAdmin).'
         unsafePath    = 'Der Sicherungsordner enthält eine Verzweigung oder symbolische Verknüpfung, darüber wird nichts geschrieben: {0}'
         autostart     = 'Autostart-Eintrag: {0}'
+        autostartOk   = 'Autostart-Eintrag bereits eingerichtet: {0}'
         handler       = 'Link-Handler: {0}'
         handlerOk     = 'Link-Handler bereits eingerichtet: {0}'
         started       = 'Chrome gestartet mit {0} (PID {1})'
@@ -322,7 +326,10 @@ function T([string]$Key) {
 
 $script:HadErrors = $false
 function Write-LogLine([string]$Line) {
-    if ($LogFile) { Add-Content -LiteralPath $LogFile -Value $Line -Encoding UTF8 }
+    if (-not $LogFile) { return }
+    # Only the elevated copy logs; it checks for a planted link before every write and stops if one appears
+    try { Assert-NoLink $LogFile } catch { exit 4 }
+    Add-Content -LiteralPath $LogFile -Value $Line -Encoding UTF8
 }
 function Ok([string]$m)   { Write-Host "[ OK ] $m" -ForegroundColor Green;  Write-LogLine "[ OK ] $m" }
 function Note([string]$m) { Write-Host "       $m" -ForegroundColor Gray;   Write-LogLine "       $m" }
@@ -336,7 +343,11 @@ function Fail([string]$m) { Write-Host "[FAIL] $m" -ForegroundColor Red;    Writ
 if ($PSVersionTable.PSEdition -ne 'Desktop') {
     $winPS = if ($env:SystemRoot) { Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe' }
     if ($winPS -and $PSCommandPath -and (Test-Path -LiteralPath $winPS)) {
-        $relaunch = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+        $relaunch = @('-NoProfile', '-ExecutionPolicy', 'Bypass')
+        # Without it the relaunched copy could wait for an answer nobody can give
+        if (@([Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^[-/]noni' }).Count -or
+            -not [Environment]::UserInteractive) { $relaunch += '-NonInteractive' }
+        $relaunch += '-File', $PSCommandPath
         foreach ($p in $PSBoundParameters.GetEnumerator()) {
             if ($p.Value -is [switch]) { if ($p.Value) { $relaunch += "-$($p.Key)" } }
             else { $relaunch += "-$($p.Key)", [string]$p.Value }
@@ -372,20 +383,21 @@ $AgentFlags = @(
 $Flags = if ($Agent) { $BaseFlags + $AgentFlags } else { $BaseFlags }
 # Every flag the script manages: a run without -Agent sets the agent flags back to Default
 $ManagedFlags = @(($BaseFlags + $AgentFlags) | ForEach-Object { $_.Split('@')[0] })
-# Expiry milestones from Chromium's chrome/browser/flag-metadata.json (Chrome 154 and 157 sources).
-# Chrome ignores a flag after its expiry milestone, unless Google extends it in a later version.
+# Expiry milestones from chrome/browser/flag-metadata.json of the Chrome 154-157 release branches,
+# as @{ <first Chrome version> = <expiry milestone> }: Google sometimes extends a flag only after
+# it has already expired in one version. Chrome ignores a flag after its expiry milestone.
 $FlagExpiry = @{
-    'glic'                                                     = 160
-    'glic-toolbar-height-side-panel'                           = 160
-    'glic-horizontal-tab-toolbar-button'                       = 160
-    'glic-toolbar-button-location'                             = 160
-    'glic-context-menu-below-search'                           = 160
-    'glic-actor'                                               = 172
-    'enable-browser-actuator-for-glic-experimental-triggering' = 170
-    'glic-background-actuation'                                = 160
-    'glic-actor-autofill'                                      = 160
-    'glic-actor-cursor'                                        = 160
-    'glic-actor-script-tools'                                  = 170
+    'glic'                                                     = @{ 154 = 160 }
+    'glic-toolbar-height-side-panel'                           = @{ 154 = 160 }
+    'glic-horizontal-tab-toolbar-button'                       = @{ 154 = 160 }
+    'glic-toolbar-button-location'                             = @{ 154 = 160 }
+    'glic-context-menu-below-search'                           = @{ 154 = 160 }
+    'glic-actor'                                               = @{ 154 = 172 }
+    'enable-browser-actuator-for-glic-experimental-triggering' = @{ 154 = 170 }
+    'glic-background-actuation'                                = @{ 154 = 160 }
+    'glic-actor-autofill'                                      = @{ 154 = 160 }
+    'glic-actor-cursor'                                        = @{ 154 = 154; 156 = 160 }
+    'glic-actor-script-tools'                                  = @{ 154 = 170 }
 }
 $Languages           = 'en-US,en'
 $ProfileLanguageKeys = 'app_locale', 'accept_languages', 'selected_languages'
@@ -464,6 +476,15 @@ function Copy-Setting($Target, $Source, [string]$Key) {
 # ---------------------------------------------------------------------------
 # Chrome settings: what a run sets and what -Restore puts back
 # ---------------------------------------------------------------------------
+# The expiry milestone the given Chrome version ships for a flag (see $FlagExpiry)
+function Get-FlagExpiry([string]$Name, [int]$ChromeMajor) {
+    $table = $FlagExpiry[$Name]
+    $versions = @($table.Keys | Sort-Object)
+    $from = $versions[0]
+    foreach ($v in $versions) { if ($v -le $ChromeMajor) { $from = $v } }
+    return $table[$from]
+}
+
 # Entries of enabled_labs_experiments that belong to flags the script does not manage
 function Get-ForeignFlags($Browser) {
     foreach ($e in @($Browser['enabled_labs_experiments'])) {
@@ -572,7 +593,8 @@ function Read-Manifest {
             if ($Matches[1] -eq $RunName) { [pscustomobject]@{ Kind = 'RunValue'; Name = $Matches[2]; Value = $Matches[3] } }
         } elseif ($line -match '^(.+?)  ->  (.+)$') {
             $name = $Matches[1]; $target = $Matches[2]
-            if ($name -match '(^|\\)\.\.(\\|$)') { continue }
+            # Backup names stay inside the backup folder: no '..', no '/' (Windows reads it as '\'), no drive
+            if ($name -match '[/:]' -or $name -match '(^|\\)\.\.(\\|$)') { continue }
             $kind = $null
             if ($name -eq 'Local State' -and $target -like '*\Local State') { $kind = 'LocalState' }
             elseif ($name -like 'profiles\*\Preferences' -and $target -like '*\Preferences') { $kind = 'Profile' }
@@ -721,7 +743,10 @@ function Test-IsAdmin {
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function ConvertTo-PSLiteral([string]$Text) { return "'" + $Text.Replace("'", "''") + "'" }
+# EscapeSingleQuotedStringContent also doubles the typographic quotes PowerShell reads as ' (U+2018-U+201B)
+function ConvertTo-PSLiteral([string]$Text) {
+    return "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Text) + "'"
+}
 
 function Get-Sha256Hex([byte[]]$Bytes) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -881,7 +906,8 @@ if ($Restore) {
     if ([string]$installs[0].Version -match '^(\d+)\.') { $chromeMajor = [int]$Matches[1] }
     foreach ($f in $Flags) {
         $name = $f.Split('@')[0]
-        if ($chromeMajor -and $FlagExpiry[$name] -lt $chromeMajor) { Warn (T 'flagExpiry' $name $FlagExpiry[$name] $chromeMajor) }
+        $expiry = Get-FlagExpiry $name $chromeMajor
+        if ($chromeMajor -and $expiry -lt $chromeMajor) { Warn (T 'flagExpiry' $name $expiry $chromeMajor) }
     }
 }
 
@@ -1044,11 +1070,10 @@ if ($Restore) {
                 $value = [string]$run.GetValue($name)
                 if ($value -notlike "*\$ChromeSub*") { continue }
                 $new = Add-OverrideToCommand $value
-                if ($new -ne $value) {
-                    $entry = "[registry] $RunName  $name = "
-                    if (-not (Test-Manifest $entry)) { Add-ManifestLine "$entry$value" }
-                    Set-ItemProperty -LiteralPath $RunKey -Name $name -Value $new
-                }
+                if ($new -eq $value) { Ok (T 'autostartOk' $name); continue }
+                $entry = "[registry] $RunName  $name = "
+                if (-not (Test-Manifest $entry)) { Add-ManifestLine "$entry$value" }
+                Set-ItemProperty -LiteralPath $RunKey -Name $name -Value $new
                 Ok (T 'autostart' $name)
                 Note $new
             }
