@@ -128,7 +128,7 @@ Everything else Chrome saved since the first run, for example other settings or 
 | `chrome-gemini-unlock.ps1` | The script itself. Messages in English, Russian, French and German, chosen by the Windows language. |
 | `tests/` | Unit tests, a check of the flags in a real Chrome, and an end-to-end test on Windows. |
 | `.github/workflows/test.yml` | Runs the tests on GitHub Actions. |
-| `.github/workflows/release.yml` | On a tag like `v1.2.3`, runs all tests and, if they pass, publishes the release. |
+| `.github/workflows/release.yml` | On a tag like `v1.2.3`, or when started by hand (Actions → Release → Run workflow, version `v1.2.3`), runs all tests and, if they pass, publishes the release. |
 | `tools/build-release.sh` | Builds a release: the ZIP, its SHA-256 and the release notes. |
 | `CHANGELOG.md` | What changed in each version. |
 
